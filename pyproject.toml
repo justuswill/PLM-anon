@@ -1,0 +1,47 @@
+[project]
+name = "plm"
+version = "0.1.0"
+description = "Inference for Parallel Language Models on vLLM"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+    "torchaudio==2.11.0",
+    "vllm==0.26.0",
+    "safetensors",
+]
+
+[project.optional-dependencies]
+eval = ["datasets", "math-verify[antlr4_13_2]", "nltk", "absl-py", "immutabledict", "langdetect"]
+
+# vLLM loads this in every process it spawns, which is what makes the PLM model classes visible to its engine.
+[project.entry-points."vllm.general_plugins"]
+register_plm = "vllm_plm:register"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["plm*", "vllm_plm*"]
+
+[tool.setuptools.package-data]
+vllm_plm = ["gpu_tuning/*.json"]
+
+# vLLM 0.26.0 pins torch 2.11.0. The PyPI vLLM wheel is a CUDA 13 build; the release asset below is the CUDA 12 one,
+# which runs against the cu128 torch on drivers that cap at CUDA 12.8.
+# torchcodec comes in with vLLM for video input this never uses, and its PyPI wheel is a CUDA 13 build whose library
+# fails to load against cu128 torch with an OSError that escapes vLLM's import guard. Without it vLLM falls back cleanly.
+[tool.uv]
+exclude-dependencies = ["torchcodec"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+vllm = { url = "https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

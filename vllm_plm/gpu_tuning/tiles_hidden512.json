@@ -1,0 +1,42 @@
+{
+ "42,768,512": {
+  "BLOCK_M": 16,
+  "BLOCK_N": 32,
+  "BLOCK_K": 128,
+  "SPLIT_K": 1,
+  "num_warps": 4,
+  "num_stages": 3
+ },
+ "42,512,512": {
+  "BLOCK_M": 16,
+  "BLOCK_N": 32,
+  "BLOCK_K": 128,
+  "SPLIT_K": 1,
+  "num_warps": 4,
+  "num_stages": 4
+ },
+ "42,2816,512": {
+  "BLOCK_M": 64,
+  "BLOCK_N": 32,
+  "BLOCK_K": 64,
+  "SPLIT_K": 1,
+  "num_warps": 4,
+  "num_stages": 3
+ },
+ "42,512,1408": {
+  "BLOCK_M": 16,
+  "BLOCK_N": 32,
+  "BLOCK_K": 128,
+  "SPLIT_K": 1,
+  "num_warps": 4,
+  "num_stages": 3
+ },
+ "42,50304,512": {
+  "BLOCK_M": 32,
+  "BLOCK_N": 64,
+  "BLOCK_K": 64,
+  "SPLIT_K": 1,
+  "num_warps": 4,
+  "num_stages": 3
+ }
+}
