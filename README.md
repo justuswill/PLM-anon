@@ -38,7 +38,7 @@ Post-trained models (`posttrain/`), the ones this repository runs:
 | `posttrain/plm-1.3B-beta1` | 1.3B | 1 | PLM, SFT + DPO | 1.3B β = 1 |
 | `posttrain/plm-1.3B-beta2` | 1.3B | 2 | PLM, SFT + DPO | 1.3B β = 2 |
 | `posttrain/plm-3B-beta1` | 3B | 1 | PLM, SFT + DPO | 3B β = 1 |
-| `posttrain/ptp-lora-1.3B` | 1.3B | – | gated-LoRA parallel decoder distilled from `ar-1.3B` | distilled model (12 extra jobs) |
+| `posttrain/ptp-lora-1.3B` | 1.3B | – | gated-LoRA parallel decoder distilled from `ar-1.3B` |  |
 
 Pretrained models (`pretrain/`). Training tokens are optimizer steps × global batch × 4096-token sequences.
 
@@ -85,7 +85,7 @@ which this repository does not include. It reproduces the generations and their 
 
 ### The distilled model
 
-`posttrain/ptp-lora-1.3B` is a parallel decoder distilled from `ar-1.3B`: the teacher's weights, unchanged, plus a gated
+`posttrain/ptp-lora-1.3B` is a parallel (PTP) decoder distilled from `ar-1.3B`: the teacher's weights, unchanged, plus a gated
 LoRA adapter (rank 256, `gated_lora.safetensors`) and a small auxiliary embedding. In each round the verify rows run the
 teacher's own weights and only the proposal rows add the adapter, so exact decoding samples exactly the teacher's
 distribution. Its random values blend the auxiliary embedding and decode by inverse CDF over the teacher's 128 likeliest
@@ -160,7 +160,7 @@ The exact tokens also depend on the GPU architecture, since kernel selection and
 | `runs/`, `scripts/make_runs.py` | one frozen job per Table 11 run, and their generator |
 | `vllm_plm/decoder.py` | the round decoder: captured prefill, round-0 and steady-round graphs |
 | `vllm_plm/mask.py` | the round's attention mask and layout |
-| `vllm_plm/auxiliary.py`, `vllm_plm/iterate.py` | the Voronoi rule's random values, partition table and assignment engine (Triton); the distilled model's linear-interpolation rule |
+| `vllm_plm/auxiliary.py`, `vllm_plm/iterate.py` | the Voronoi rule's random values, partition table and assignment engine (Triton) |
 | `vllm_plm/gated_lora.py` | the distilled model's gated LoRA adapter, applied to proposal rows only |
 | `vllm_plm/fast_gemm.py`, `vllm_plm/gemm_tables.py`, `vllm_plm/gpu_tuning/` | `--mode fast` |
 | `vllm_plm/voronoi_ar.py` | the PLM decode rule as a vLLM logits processor, for the AR baseline |

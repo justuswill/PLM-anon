@@ -8,6 +8,4 @@ class PLMConfig(LlamaConfig):
 
 
 class PTPConfig(PLMConfig):
-    """The gated-LoRA distilled model keeps the PTP naming of its export; it loads through the PLM classes."""
-
     model_type = "ptp"

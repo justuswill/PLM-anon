@@ -15,7 +15,6 @@ def register() -> None:
 
     AutoConfig.register("plm", PLMConfig, exist_ok=True)
     AutoConfig.register("ptp", PTPConfig, exist_ok=True)
-    # PTPForCausalLM is the gated-LoRA distilled model's architecture name; it is the same class.
-    for architecture, model_class in (("PLMForCausalLM", "PLMForCausalLM"), ("PLMBackboneForCausalLM", "PLMBackboneForCausalLM"), ("PTPForCausalLM", "PLMForCausalLM")):
+    for architecture in ("PLMForCausalLM", "PLMBackboneForCausalLM", "PTPForCausalLM"):
         if architecture not in ModelRegistry.get_supported_archs():
-            ModelRegistry.register_model(architecture, f"vllm_plm.model:{model_class}")
+            ModelRegistry.register_model(architecture, f"vllm_plm.model:{architecture}")
