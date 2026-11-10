@@ -1,4 +1,5 @@
-"""The logit-Voronoi auxiliary scheme with the ``iterate`` backend, the one every released checkpoint uses.
+"""The auxiliary schemes of the released checkpoints: the logit-Voronoi scheme with the ``iterate`` backend (every PLM), and
+the linear-interpolation scheme of the gated-LoRA distilled model.
 
 Parameter and buffer names match the exported checkpoints, so ``auxiliary_scheme.*`` tensors load straight in.
 """
@@ -74,10 +75,51 @@ class LogitVoronoiAuxiliary(nn.Module):
         return assignment.tokens.gather(1, slots).squeeze(1).view(values.shape)
 
 
-def build_auxiliary_scheme(config, dtype: torch.dtype | None = None) -> LogitVoronoiAuxiliary:
+class LinearInterpolationAuxiliary(nn.Module):
+    """A value u in [0, 1) blends learned vectors, and decodes by inverse CDF over the verify row's top-k probabilities."""
+
+    def __init__(self, hidden_size: int, text_vocab_size: int, *, num_embeddings: int = 3, top_k: int = 128) -> None:
+        super().__init__()
+        self.text_vocab_size = int(text_vocab_size)
+        self.top_k = int(top_k)
+        # float32 like the checkpoint: the blend is cast to the model's dtype only once it is made
+        self.embedding = nn.Embedding(int(num_embeddings), int(hidden_size), dtype=torch.float32)
+
+    @property
+    def masked_value(self) -> None:
+        return None
+
+    @torch.no_grad()
+    def sample_prior(self, shape: tuple[int, ...], *, device: torch.device | str = "cpu", generator: torch.Generator | None = None) -> Tensor:
+        return torch.rand(tuple(shape), device=device, generator=generator, dtype=torch.float32)
+
+    def embed(self, input_ids: Tensor, values: Tensor, aux_mask: Tensor) -> Tensor:
+        scaled = values.to(torch.float32) * (self.embedding.num_embeddings - 1)
+        lower_f = torch.floor(scaled)
+        lower = lower_f.long().clamp(0, self.embedding.num_embeddings - 1)
+        upper = torch.clamp(lower + 1, max=self.embedding.num_embeddings - 1)
+        frac = (scaled - lower_f).unsqueeze(-1)
+        return self.embedding(lower) * (1.0 - frac) + self.embedding(upper) * frac
+
+    def decode_unmasked(self, logits: Tensor, hidden_states: Tensor, output_weight: Tensor, values: Tensor) -> Tensor:
+        """The bin holding u among the top-k probabilities at temperature 1, renormalised and ordered by token id."""
+        probs = torch.softmax(logits.reshape(-1, logits.shape[-1]).float(), dim=-1)
+        top_probs, top_indices = probs.topk(self.top_k, dim=-1)
+        order = top_indices.argsort(dim=-1)
+        probs_by_id = top_probs.gather(1, order)
+        right_edges = (probs_by_id / probs_by_id.sum(dim=-1, keepdim=True)).cumsum(dim=-1)
+        right_edges[:, -1] = 1.0
+        bins = (right_edges > values.reshape(-1, 1).float()).to(torch.int8).argmax(dim=-1, keepdim=True)
+        return top_indices.gather(1, order).gather(1, bins).squeeze(1).view(values.shape)
+
+
+def build_auxiliary_scheme(config, dtype: torch.dtype | None = None) -> nn.Module:
     spec = dict(config.auxiliary_scheme)
-    if spec.pop("kind") != "logit_voronoi":
-        raise ValueError("only the logit-Voronoi auxiliary scheme is supported")
+    kind = spec.pop("kind")
     spec.pop("masked_value", None)
+    if kind == "linear_interpolation":
+        return LinearInterpolationAuxiliary(hidden_size=config.hidden_size, text_vocab_size=config.text_vocab_size, **spec)
+    if kind != "logit_voronoi":
+        raise ValueError(f"unsupported auxiliary scheme {kind!r}")
     return LogitVoronoiAuxiliary(auxiliary_vocab_size=spec.pop("auxiliary_vocab_size"), hidden_size=config.hidden_size,
                                  text_vocab_size=config.text_vocab_size, dtype=dtype, **spec)

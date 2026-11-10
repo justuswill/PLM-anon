@@ -104,7 +104,8 @@ class RoundDecoder:
         self.num_aux_tokens = int(self.model.config.num_aux_tokens)
         self.embed_weight = self.model.model.embed_tokens.weight
         self.lm_head_weight = self.model.lm_head.weight[: self.vocab]
-        self.sentinel = self.scheme.masked_value
+        # Non-auxiliary rows never read their value; a scheme without a masked value (linear interpolation) fills them with 0.
+        self.sentinel = self.scheme.masked_value if self.scheme.masked_value is not None else 0
         self.chunk_widths = chunk_widths
         self.aux_seed: int | None = None
         self._compiled_pre = self._compiled_post = None
@@ -246,12 +247,15 @@ class RoundDecoder:
 
     # ------------------------------------------------------------------ pieces of a round
 
-    def _forward(self, metadata, slot_mapping, num_tokens: int, positions, inputs_embeds):
+    def _forward(self, metadata, slot_mapping, num_tokens: int, positions, inputs_embeds, gated_from: int | None = None):
+        """``gated_from``: the first auxiliary row, where a gated-LoRA model's adapters start to apply; ignored by the PLMs."""
         from vllm.forward_context import set_forward_context
+
+        from . import gated_lora
 
         attn = {name: metadata for name in self.layer_names}
         slots = {name: slot_mapping for name in self.layer_names}
-        with set_forward_context(attn, self.vllm_config, num_tokens=num_tokens, slot_mapping=slots):
+        with set_forward_context(attn, self.vllm_config, num_tokens=num_tokens, slot_mapping=slots), gated_lora.rows_from(gated_from):
             return self.model(input_ids=None, positions=positions, intermediate_tensors=None, inputs_embeds=inputs_embeds)
 
     def _decode_verify(self, logits, hidden, index):
@@ -291,7 +295,7 @@ class RoundDecoder:
         self.md.decode_offset.copy_(offset_t.view(1).to(self.md.decode_offset.dtype))
         self.slot_mapping.copy_(self.rows + offset_t + BS)
         self.kv_num_blocks.copy_(((offset_t + W + BS - 1) // BS).to(self.kv_num_blocks.dtype).expand_as(self.kv_num_blocks))
-        hidden = self._forward(self.md, self.slot_mapping, W, rel_positions + offset_t, embeds)
+        hidden = self._forward(self.md, self.slot_mapping, W, rel_positions + offset_t, embeds, gated_from=1)
         logits = self.model.compute_logits(hidden)[:, :V]
         verify = self._decode_verify(logits[:1], hidden[:1], base_t + self.kidx[:1])
         hypotheses = logits[1:].argmax(dim=-1)
@@ -310,7 +314,7 @@ class RoundDecoder:
         embeds, positions = self._compile(self._prologue, "_compiled_pre")(
             self.offset_t, self.base_t, self.anchor, self.pending, self.aux_buf, self.steady_layout[0], self.steady_layout[1], self.ids_buf,
             self.mask.offset, self.seq_lens, self.md.decode_offset, self.slot_mapping, self.kv_num_blocks, self.rows, self.embed_weight)
-        hidden = self._forward(self.md, self.slot_mapping, self.width, positions, embeds)
+        hidden = self._forward(self.md, self.slot_mapping, self.width, positions, embeds, gated_from=K)
         logits = self.model.compute_logits(hidden)[:, : self.vocab]
         # The assignment engine autotunes Triton kernels and compiles its own argmin, so the verify decode stays outside the traced epilogue.
         verify = self._decode_verify(logits[:K], hidden[:K], self.base_t + self.kidx)

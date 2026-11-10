@@ -6,7 +6,9 @@ applies the same rule to one row per step on stock vLLM autoregression, so an AR
 decode does. The seed is the request's ``SamplingParams.extra_args["aux_seed"]`` (default 0).
 
 The scheme comes from ``PLM_VORONOI_SCHEME_DIR``, a PLM export of the same hidden size whose config carries
-``auxiliary_scheme``; the ``lm_head`` is the served model's own. Serves one request at a time.
+``auxiliary_scheme``; the ``lm_head`` is the served model's own. With the distilled model's linear-interpolation scheme
+this is top-128 sampling at temperature 1 by inverse CDF on that model's seeded random values, its exact decode run
+autoregressively. Serves one request at a time.
 """
 
 from __future__ import annotations
@@ -40,12 +42,13 @@ class VoronoiARLogitsProcessor(LogitsProcessor):
         self.dtype = vllm_config.model_config.dtype
         scheme_config = SimpleNamespace(**json.loads((scheme_dir / "config.json").read_text()))
         self.scheme = build_auxiliary_scheme(scheme_config, dtype=self.dtype).to(device)
-        self.scheme.auxiliary_vocabulary.copy_(read_tensor(scheme_dir, "auxiliary_scheme.auxiliary_vocabulary"))
+        if scheme_config.auxiliary_scheme["kind"] == "logit_voronoi":   # linear interpolation decodes from the logits alone
+            self.scheme.auxiliary_vocabulary.copy_(read_tensor(scheme_dir, "auxiliary_scheme.auxiliary_vocabulary"))
         self.vocab = self.scheme.text_vocab_size
         head = read_tensor(Path(vllm_config.model_config.model), "lm_head.weight")
         self.lm_head_weight = head[: self.vocab].to(device, self.dtype)
         self.device = device
-        self.stream = torch.empty(AUX_STREAM_LENGTH, dtype=torch.long, device=device)
+        self.stream = self.scheme.sample_prior((AUX_STREAM_LENGTH,), device=device)   # integer cells or uniform floats, per scheme
         self.seed: int | None = None
         self._draw_stream(0)
         self.output_ids: dict[int, list[int]] = {}

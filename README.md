@@ -22,9 +22,9 @@ bash scripts/setup_eval.sh    # Google's IFEval checkers and NLTK data, into thi
 ## Models
 
 ```
-bash scripts/download.sh                            # the five post-trained Table 11 models, into checkpoints/posttrain/
+bash scripts/download.sh                            # the five post-trained Table 11 models and the distilled model, into checkpoints/posttrain/
 bash scripts/download.sh posttrain/plm-1.3B-beta1   # or some of them
-bash scripts/download.sh --pretrain --lora          # also the pretrained models and the gated-LoRA model
+bash scripts/download.sh --pretrain                 # also the pretrained models
 ```
 
 The checkpoints can also be browsed at https://anonymous-hf.com/a/gk540ibws5qh/.
@@ -38,7 +38,7 @@ Post-trained models (`posttrain/`), the ones this repository runs:
 | `posttrain/plm-1.3B-beta1` | 1.3B | 1 | PLM, SFT + DPO | 1.3B β = 1 |
 | `posttrain/plm-1.3B-beta2` | 1.3B | 2 | PLM, SFT + DPO | 1.3B β = 2 |
 | `posttrain/plm-3B-beta1` | 3B | 1 | PLM, SFT + DPO | 3B β = 1 |
-| `posttrain/ptp-lora-1.3B` | 1.3B | – | gated-LoRA parallel decoder distilled from `ar-1.3B` | not in Table 11 |
+| `posttrain/ptp-lora-1.3B` | 1.3B | – | gated-LoRA parallel decoder distilled from `ar-1.3B` | distilled model (12 extra jobs) |
 
 Pretrained models (`pretrain/`). Training tokens are optimizer steps × global batch × 4096-token sequences.
 
@@ -83,8 +83,22 @@ uv run --no-sync python -m plm.generate --ar --ar-sampler voronoi --model checkp
 The quality numbers of Figure 1 and Table 7 come from a pairwise LLM-judge tournament on FineWeb-Edu continuations,
 which this repository does not include. It reproduces the generations and their speed.
 
-`posttrain/ptp-lora-1.3B` holds `ar-1.3B`'s weights plus a gated LoRA adapter (`gated_lora.safetensors`) and the
-auxiliary embedding. It is released for completeness: this repository does not run it.
+### The distilled model
+
+`posttrain/ptp-lora-1.3B` is a parallel decoder distilled from `ar-1.3B`: the teacher's weights, unchanged, plus a gated
+LoRA adapter (rank 256, `gated_lora.safetensors`) and a small auxiliary embedding. In each round the verify rows run the
+teacher's own weights and only the proposal rows add the adapter, so exact decoding samples exactly the teacher's
+distribution. Its random values blend the auxiliary embedding and decode by inverse CDF over the teacher's 128 likeliest
+tokens at temperature 1, which is ordinary top-128 sampling. Its AR row, `ar-1.3B` with
+`--ar-sampler voronoi --ar-voronoi-scheme checkpoints/posttrain/ptp-lora-1.3B` (`ar-lora` in `runs/`), applies the same
+inverse-CDF rule to the same seeded random values one token at a time, so it is theoretically token-identical to the
+distilled model's exact decoding for the same seed. It decodes with the post-training defaults (exact `k = 7`; relaxed
+`k = 10`, top-0.94 nucleus):
+
+```
+uv run python -m plm.generate --model checkpoints/posttrain/ptp-lora-1.3B --mode fast --match exact --k 7 \
+    --dataset prompts.json --tokens 512 --stop-at-eos --seeds 0 1 2 --out results.json
+```
 
 ## Generating
 
@@ -107,7 +121,7 @@ seed, every continuation with its timing and the number of tokens accepted per r
 
 Every run of Table 11 has its own frozen job in `runs/`: one per model, decoding and benchmark, with all flags pinned.
 There are 72 in total: ar-topk, ar-voronoi, exact and relaxed for each PLM, and ar-topk and ar-voronoi for `ar-1.3B`,
-each on four benchmarks. Each job generates over a warm-up pass and seeds 0, 1 and 2, grades the run, and writes
+each on four benchmarks, plus 12 for the distilled model (`ptp-lora-1.3B` exact and relaxed, and `ar-1.3B` ar-lora). Each job generates over a warm-up pass and seeds 0, 1 and 2, grades the run, and writes
 `results/<model>-<decoding>/<benchmark>.json` and `.score.json`.
 
 ```
@@ -146,7 +160,8 @@ The exact tokens also depend on the GPU architecture, since kernel selection and
 | `runs/`, `scripts/make_runs.py` | one frozen job per Table 11 run, and their generator |
 | `vllm_plm/decoder.py` | the round decoder: captured prefill, round-0 and steady-round graphs |
 | `vllm_plm/mask.py` | the round's attention mask and layout |
-| `vllm_plm/auxiliary.py`, `vllm_plm/iterate.py` | the Voronoi rule's random values, partition table and assignment engine (Triton) |
+| `vllm_plm/auxiliary.py`, `vllm_plm/iterate.py` | the Voronoi rule's random values, partition table and assignment engine (Triton); the distilled model's linear-interpolation rule |
+| `vllm_plm/gated_lora.py` | the distilled model's gated LoRA adapter, applied to proposal rows only |
 | `vllm_plm/fast_gemm.py`, `vllm_plm/gemm_tables.py`, `vllm_plm/gpu_tuning/` | `--mode fast` |
 | `vllm_plm/voronoi_ar.py` | the PLM decode rule as a vLLM logits processor, for the AR baseline |
 | `vllm_plm/model.py`, `vllm_plm/config.py` | the vLLM model classes, registered through a vLLM plugin entry point |

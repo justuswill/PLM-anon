@@ -2,7 +2,8 @@
 
 On the autoregressive path a PLM is Llama: the export's per-layer keys are the names vLLM's Llama loader consumes. What
 ``PLMForCausalLM`` adds is the auxiliary scheme, held as a real submodule so ``auxiliary_scheme.*`` loads next to
-``lm_head``; ``RoundDecoder`` substitutes its vectors into the embedding before every forward.
+``lm_head``; ``RoundDecoder`` substitutes its vectors into the embedding before every forward. A gated-LoRA export also
+carries ``.lora_a`` / ``.lora_b`` adapters, which bypass vLLM's loader and wrap their layers (``gated_lora``).
 """
 
 from collections.abc import Iterable
@@ -11,6 +12,7 @@ import torch
 from vllm.model_executor.models.llama import LlamaForCausalLM
 from vllm.model_executor.models.utils import AutoWeightsLoader
 
+from . import gated_lora
 from .auxiliary import build_auxiliary_scheme
 
 AUXILIARY_PREFIX = "auxiliary_scheme."
@@ -30,4 +32,17 @@ class PLMForCausalLM(LlamaForCausalLM):
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
         skip_prefixes = ["lm_head."] if self.config.tie_word_embeddings else []
-        return AutoWeightsLoader(self, skip_prefixes=skip_prefixes).load_weights(weights)
+        adapters: dict[str, torch.Tensor] = {}
+        loaded = AutoWeightsLoader(self, skip_prefixes=skip_prefixes).load_weights(set_aside_adapters(weights, adapters))
+        if adapters:
+            gated_lora.install(self, adapters)
+        return loaded
+
+
+def set_aside_adapters(weights: Iterable[tuple[str, torch.Tensor]], adapters: dict[str, torch.Tensor]) -> Iterable[tuple[str, torch.Tensor]]:
+    # The adapters are no parameter vLLM's loader knows, and they are fused across q/k/v and gate/up as it fuses the base weights.
+    for name, tensor in weights:
+        if name.endswith(gated_lora.LORA_SUFFIXES):
+            adapters[name] = tensor
+        else:
+            yield name, tensor

@@ -16,15 +16,18 @@ RUNS = Path(__file__).resolve().parent.parent / "runs"
 BUDGETS = {"gsm8k": 512, "math500": 2048, "humaneval": 768, "ifeval": 1280}
 PLMS = {"plm-1.3B-beta0.5": 10, "plm-1.3B-beta1": 10, "plm-1.3B-beta2": 10, "plm-3B-beta1": 7}   # model -> relaxed k
 SCHEME_FOR_AR_BASELINE = "plm-1.3B-beta1"
+DISTILLED = "ptp-lora-1.3B"   # gated-LoRA model distilled from ar-1.3B; ar-lora is its exact decode run autoregressively on ar-1.3B
 
 
 def decodings() -> list[tuple[str, str, str]]:
-    """(model, decoding, generate flags) for every Table 11 row."""
+    """(model, decoding, generate flags) for every Table 11 row, then the distilled model's rows."""
     rows = [("ar-1.3B", "ar-topk", "--ar --ar-sampler topk"),
             ("ar-1.3B", "ar-voronoi", f'--ar --ar-sampler voronoi --ar-voronoi-scheme "$CHECKPOINTS/posttrain/{SCHEME_FOR_AR_BASELINE}"')]
     for model, relaxed_k in PLMS.items():
         rows += [(model, "ar-topk", "--ar --ar-sampler topk"), (model, "ar-voronoi", "--ar --ar-sampler voronoi"),
                  (model, "exact", "--mode fast --match exact --k 7"), (model, "relaxed", f"--mode fast --match relaxed --k {relaxed_k}")]
+    rows += [(DISTILLED, "exact", "--mode fast --match exact --k 7"), (DISTILLED, "relaxed", "--mode fast --match relaxed --k 10"),
+             ("ar-1.3B", "ar-lora", f'--ar --ar-sampler voronoi --ar-voronoi-scheme "$CHECKPOINTS/posttrain/{DISTILLED}"')]
     return rows
 
 

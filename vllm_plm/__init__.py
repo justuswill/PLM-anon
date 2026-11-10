@@ -11,9 +11,11 @@ def register() -> None:
     from transformers import AutoConfig
     from vllm import ModelRegistry
 
-    from .config import PLMConfig
+    from .config import PLMConfig, PTPConfig
 
     AutoConfig.register("plm", PLMConfig, exist_ok=True)
-    for architecture in ("PLMForCausalLM", "PLMBackboneForCausalLM"):
+    AutoConfig.register("ptp", PTPConfig, exist_ok=True)
+    # PTPForCausalLM is the gated-LoRA distilled model's architecture name; it is the same class.
+    for architecture, model_class in (("PLMForCausalLM", "PLMForCausalLM"), ("PLMBackboneForCausalLM", "PLMBackboneForCausalLM"), ("PTPForCausalLM", "PLMForCausalLM")):
         if architecture not in ModelRegistry.get_supported_archs():
-            ModelRegistry.register_model(architecture, f"vllm_plm.model:{architecture}")
+            ModelRegistry.register_model(architecture, f"vllm_plm.model:{model_class}")
