@@ -80,22 +80,14 @@ uv run --no-sync python -m plm.generate --ar --ar-sampler voronoi --model checkp
     --ar-voronoi-scheme checkpoints/pretrain/plm-1.3B-beta1 --dataset prompts.json --tokens 128 --out results.json
 ```
 
-### EAGLE-3 baseline
+`--ar-sampler topk` is ordinary autoregressive sampling (temperature 1, top 128 tokens), while `--ar-sampler voronoi`
+draws each token with the PLM's own sampling rule and seeded random values, so on a PLM it is theoretically
+token-identical to `--match exact` for the same seed. A plain AR model has no such sampling table, so `--ar-voronoi-scheme`
+borrows it from the β = 1 PLM of the same size (all PLMs of one size share it).
 
-The two `eagle3-*` heads are EAGLE-3 draft heads trained on ClimbMix with their PLM frozen and run as a plain
-autoregressive model. `--eagle3` serves the head as vLLM's speculative decoding on top of `--ar --ar-sampler topk`;
-verification keeps the target's top-k distribution, so only speed changes. The head drafts `--eagle3-k` tokens
-(default 5) per target call, and `tokens/call` counts the prefill as one call.
-
-```
-uv run --no-sync python -m plm.generate --ar --ar-sampler topk --model checkpoints/pretrain/plm-1.3B-beta1 \
-    --eagle3 checkpoints/pretrain/eagle3-plm-1.3B-beta1 --dataset prompts.json --tokens 128 --seeds 0 1 2 --out results.json
-```
-
-`--ar-sampler topk` is ordinary autoregressive sampling (temperature 1, top 128 tokens), while `--ar-sampler voronoi` draws each token with the PLM's own sampling rule and seeded random values, so on a PLM it is theoretically token-identical to `--match exact` for the same seed. A plain AR model has no such sampling table, so `--ar-voronoi-scheme` borrows it from the β = 1 PLM of the same size (all PLMs of one size share it).
-
-The quality numbers of Figure 1 and Table 7 come from a pairwise LLM-judge tournament on FineWeb-Edu continuations,
-which this repository does not include. It reproduces the generations and their speed: `runs/pretrain/` holds one frozen
+The quality numbers of Figure 1 and Table 7 come from a pairwise LLM-judge tournament on FineWeb-Edu continuations.
+`plm.judge` and `scripts/judge_elo.sh` run that tournament (see [Reproducing Figure 1](#reproducing-figure-1-partial)).
+`runs/pretrain/` holds one frozen
 job per pretrained 1.3B and 3B model and decoding (ar-topk, ar-voronoi, exact and relaxed, `ar-1.3B`'s two AR rows, and
 the two EAGLE-3 heads), 20 in total, on the judge's 200 prompts (`data/fineweb-edu/`) under its contract: 128 tokens
 with no stop at EOS, temperature 1 over the 128 likeliest tokens. Each job writes `results/pretrain/<model>-<decoding>/fineweb-edu.json`
@@ -108,7 +100,7 @@ bash runs/submit_all.sh pretrain -p <partition>
 uv run --no-sync python -m plm.eval.table results/pretrain        # tokens/s and tokens/call, mean ± 95% CI over the three seeds
 ```
 
-### The distilled model
+### PTP baseline
 
 `posttrain/ptp-lora-1.3B` is a parallel (PTP) decoder distilled from `ar-1.3B`: the teacher's weights, unchanged, plus a gated
 LoRA adapter (rank 256, `gated_lora.safetensors`) and a small auxiliary embedding. In each round the verify rows run the
@@ -123,6 +115,18 @@ distilled model's exact decoding for the same seed. It decodes with the post-tra
 ```
 uv run python -m plm.generate --model checkpoints/posttrain/ptp-lora-1.3B --mode fast --match exact --k 7 \
     --dataset prompts.json --tokens 512 --stop-at-eos --seeds 0 1 2 --out results.json
+```
+
+### EAGLE-3 baseline
+
+The two `eagle3-*` heads are EAGLE-3 draft heads trained on ClimbMix with their PLM frozen and run as a plain
+autoregressive model. `--eagle3` serves the head as vLLM's speculative decoding on top of `--ar --ar-sampler topk`;
+verification keeps the target's top-k distribution, so only speed changes. The head drafts `--eagle3-k` tokens
+(default 5) per target call, and `tokens/call` counts the prefill as one call.
+
+```
+uv run --no-sync python -m plm.generate --ar --ar-sampler topk --model checkpoints/pretrain/plm-1.3B-beta1 \
+    --eagle3 checkpoints/pretrain/eagle3-plm-1.3B-beta1 --dataset prompts.json --tokens 128 --seeds 0 1 2 --out results.json
 ```
 
 ## Generating
@@ -141,6 +145,35 @@ seed, every continuation with its timing and the number of tokens accepted per r
   is stock vLLM with no patching and runs on any GPU vLLM supports. Both modes run the same algorithm, but the Triton GEMMs round differently from cuBLAS, so long generations
   can occasionally differ between the two. The paper's numbers use `fast`; on other GPUs, use `default`.
 - `--match`, `--k` and `--ar` choose the decoding.
+
+## Reproducing Figure 1 (partial)
+
+Figure 1 places every model by its quality, the Elo of a pairwise LLM-judge tournament on FineWeb-Edu continuations,
+against its single-stream speed. This repository reproduces it for the pretrained 1.3B and 3B models, every decoding
+of them, and the EAGLE-3 baseline; the paper's other baselines (off-the-shelf autoregressive and diffusion language
+models) and the 350M PLM are not included. Elo is relative to the field it is fitted on, so the values shift from the
+paper's: here `vllm_ar_1.3b_pre_ar_topk` (`ar-1.3B`, top-k sampling) sits at 1000.
+
+```
+bash scripts/download.sh --pretrain                                # the pretrained models and the EAGLE-3 heads
+uv sync --extra eval
+bash runs/submit_all.sh pretrain -p <partition>                   # 20 jobs, 3 to 15 minutes each on an RTX 6000 Ada
+sbatch --gres=gpu:4 scripts/judge_elo.sh results/pretrain/samples results/pretrain/elo     # or bash ..., without Slurm
+uv run --no-sync python -m plm.judge.figure1 --samples results/pretrain/samples \
+    --elo results/pretrain/elo/elo.json --out results/pretrain/figure1.png
+```
+
+Each player is one samples file, `results/pretrain/samples/<player>.jsonl`, with seed 0's continuations of the 200
+prompts. The judge is the optional third argument of `scripts/judge_elo.sh`, a Hugging Face model id (default
+`microsoft/phi-4`, about 30 GB, downloaded on first use; any chat model whose tokenizer has A, B and C as single tokens).
+It meets each player with 400 random opponents, each on a
+random prompt, cuts both continuations to a common length (at most 128 GPT-2 tokens), and reads its probabilities for
+A, B or C (about equal) after showing the opening and both continuations; every pair is judged in both orders and is a
+win only when both agree. A Bradley-Terry fit turns the outcomes into Elo, with 95% intervals from 1000 resamples of
+whole prompts, and `elo.md` also reports the judge's swap consistency, first-position bias, tie rate and split-half
+rank agreement. Every judge call is cached (`results/judge-cache/`), so adding a player judges only its own pairs. The
+other settings (meetings, anchor, length cap, engine) are environment variables at the top of `scripts/judge_elo.sh`; `ENGINE=mock` runs the whole pipeline without a GPU. `plm.judge.figure1` prints the joined
+table (Elo and end-to-end tokens per second) and draws the figure.
 
 ## Reproducing Table 11
 
@@ -185,6 +218,7 @@ The exact tokens also depend on the GPU architecture, since kernel selection and
 | `plm/eval/` | prompt building, grading and the results table |
 | `runs/posttrain/`, `runs/pretrain/`, `scripts/make_runs.py` | one frozen job per Table 11 and per Figure 1 run, and their generator |
 | `data/fineweb-edu/`, `plm/eval/judge_samples.py` | the judge's 200 FineWeb-Edu prompts, and the converter to its samples format |
+| `plm/judge/`, `scripts/judge_elo.sh` | the LLM-judge tournament: schedule, judge, Elo fit, and the Figure 1 table and plot |
 | `vllm_plm/decoder.py` | the round decoder: captured prefill, round-0 and steady-round graphs |
 | `vllm_plm/mask.py` | the round's attention mask and layout |
 | `vllm_plm/auxiliary.py`, `vllm_plm/iterate.py` | the Voronoi rule's random values, partition table and assignment engine (Triton) |

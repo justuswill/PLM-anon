@@ -12,7 +12,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-eval = ["datasets", "math-verify[antlr4_13_2]", "nltk", "absl-py", "immutabledict", "langdetect"]
+eval = [
+    "datasets",
+    "math-verify[antlr4_13_2]",
+    "nltk",
+    "absl-py",
+    "immutabledict",
+    "langdetect",
+    "matplotlib>=3.11.2",
+]
 
 # vLLM loads this in every process it spawns, which is what makes the PLM model classes visible to its engine.
 [project.entry-points."vllm.general_plugins"]
