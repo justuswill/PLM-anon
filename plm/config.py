@@ -82,7 +82,7 @@ class RoundConfig:
         return decoder
 
 
-def build_ar(model: str, dtype: str, max_model_len: int, voronoi_scheme: str | None):
+def build_ar(model: str, dtype: str, max_model_len: int, voronoi_scheme: str | None, eagle3_head: str | None = None, eagle3_k: int = 0):
     """Stock vLLM autoregression, with CUDA graphs on: the fastest AR available. A PLM export is served as the plain Llama it is on this path."""
     from vllm import LLM
 
@@ -93,8 +93,11 @@ def build_ar(model: str, dtype: str, max_model_len: int, voronoi_scheme: str | N
         # The processor is built inside the engine core process, so it reads its scheme from the environment.
         os.environ["PLM_VORONOI_SCHEME_DIR"] = str(Path(voronoi_scheme).resolve())
         extra["logits_processors"] = ["vllm_plm.voronoi_ar:VoronoiARLogitsProcessor"]
+    if eagle3_head is not None:
+        extra["speculative_config"] = {"method": "eagle3", "model": eagle3_head, "num_speculative_tokens": eagle3_k}
+    # Speculative decoding reports its drafts and accepted tokens only through the engine's stats, so they stay on for EAGLE-3.
     return LLM(model=model, dtype=dtype, max_model_len=max_model_len, gpu_memory_utilization=GPU_MEMORY_UTILIZATION, block_size=KV_BLOCK_SIZE,
-               kv_cache_memory_bytes=KV_CACHE_BYTES, max_num_seqs=1, disable_log_stats=True, **extra)
+               kv_cache_memory_bytes=KV_CACHE_BYTES, max_num_seqs=1, disable_log_stats=eagle3_head is None, **extra)
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -112,6 +115,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                              "topk: temperature 1 over the 128 likeliest tokens")
     parser.add_argument("--ar-dtype", default="", choices=("", "bfloat16", "float16"), help="default: float16 for voronoi, bfloat16 for topk")
     parser.add_argument("--ar-voronoi-scheme", default="", help="PLM export whose auxiliary scheme --ar-sampler voronoi decodes with; default the model's own")
+    parser.add_argument("--eagle3", default="", help="with --ar --ar-sampler topk: an EAGLE-3 head trained on --model, served as vLLM speculative decoding")
+    parser.add_argument("--eagle3-k", type=int, default=5, help="tokens the EAGLE-3 head drafts per target call")
 
 
 def from_args(args: argparse.Namespace) -> RoundConfig:

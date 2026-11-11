@@ -12,14 +12,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from statistics import fmean, stdev
 
 from plm.eval.benchmarks import BENCHMARKS, Task, mean_score
+from plm.eval.stats import spread
 
 EOS = "<|endoftext|>"
 METRICS = ("score", "questions_per_second", "tokens_per_second", "tokens_per_call")
-# Two-sided 95% Student-t quantiles by degrees of freedom.
-T_95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262}
 
 
 def answer_text(continuation: str, stop: tuple[str, ...]) -> str:
@@ -36,12 +34,6 @@ def grade_pass(benchmark: str, tasks: list[Task], measured: dict) -> dict:
             "tokens_per_second": sum(record["tokens"] for record in records) / seconds, "tokens_per_call": measured["aggregate"]["tokens_per_call"],
             "grades": [{"task_id": task.task_id, "score": grade.score, **grade.detail} for task, grade in zip(tasks, grades)]}
 
-
-def spread(values: list[float]) -> dict:
-    if len(values) < 2:
-        return {"mean": values[0], "std": 0.0, "ci95": 0.0}
-    deviation = stdev(values)
-    return {"mean": fmean(values), "std": deviation, "ci95": T_95[len(values) - 1] * deviation / len(values) ** 0.5}
 
 
 def main() -> None:

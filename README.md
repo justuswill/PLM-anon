@@ -63,6 +63,8 @@ Pretrained models (`pretrain/`). Training tokens are optimizer steps × global b
 | `pretrain/plm-1.3B-beta1` | 1.3B | 1 | 100.0B | Figures 1 and 5, Table 7; base of the post-trained β = 1 |
 | `pretrain/plm-1.3B-beta2` | 1.3B | 2 | 100.0B | Figure 5; base of the post-trained β = 2 |
 | `pretrain/plm-3B-beta1` | 3B | 1 | 300.0B | Figures 1 and 5, Table 7; base of the post-trained 3B |
+| `pretrain/eagle3-plm-1.3B-beta1` | 1-layer head | – | 0.49B | EAGLE-3 draft head for `pretrain/plm-1.3B-beta1` |
+| `pretrain/eagle3-plm-3B-beta1` | 1-layer head | – | 2.0B | EAGLE-3 draft head for `pretrain/plm-3B-beta1` |
 
 All models use the GPT-2 tokenizer. The post-trained models use the prompt template `User: {prompt}\n\nAssistant:`.
 
@@ -78,10 +80,33 @@ uv run --no-sync python -m plm.generate --ar --ar-sampler voronoi --model checkp
     --ar-voronoi-scheme checkpoints/pretrain/plm-1.3B-beta1 --dataset prompts.json --tokens 128 --out results.json
 ```
 
+### EAGLE-3 baseline
+
+The two `eagle3-*` heads are EAGLE-3 draft heads trained on ClimbMix with their PLM frozen and run as a plain
+autoregressive model. `--eagle3` serves the head as vLLM's speculative decoding on top of `--ar --ar-sampler topk`;
+verification keeps the target's top-k distribution, so only speed changes. The head drafts `--eagle3-k` tokens
+(default 5) per target call, and `tokens/call` counts the prefill as one call.
+
+```
+uv run --no-sync python -m plm.generate --ar --ar-sampler topk --model checkpoints/pretrain/plm-1.3B-beta1 \
+    --eagle3 checkpoints/pretrain/eagle3-plm-1.3B-beta1 --dataset prompts.json --tokens 128 --seeds 0 1 2 --out results.json
+```
+
 `--ar-sampler topk` is ordinary autoregressive sampling (temperature 1, top 128 tokens), while `--ar-sampler voronoi` draws each token with the PLM's own sampling rule and seeded random values, so on a PLM it is theoretically token-identical to `--match exact` for the same seed. A plain AR model has no such sampling table, so `--ar-voronoi-scheme` borrows it from the β = 1 PLM of the same size (all PLMs of one size share it).
 
 The quality numbers of Figure 1 and Table 7 come from a pairwise LLM-judge tournament on FineWeb-Edu continuations,
-which this repository does not include. It reproduces the generations and their speed.
+which this repository does not include. It reproduces the generations and their speed: `runs/pretrain/` holds one frozen
+job per pretrained 1.3B and 3B model and decoding (ar-topk, ar-voronoi, exact and relaxed, `ar-1.3B`'s two AR rows, and
+the two EAGLE-3 heads), 20 in total, on the judge's 200 prompts (`data/fineweb-edu/`) under its contract: 128 tokens
+with no stop at EOS, temperature 1 over the 128 likeliest tokens. Each job writes `results/pretrain/<model>-<decoding>/fineweb-edu.json`
+over a warm-up pass and seeds 0, 1 and 2, and turns seed 0 into the judge's samples file
+`results/pretrain/samples/<player>.jsonl` (`plm.eval.judge_samples`: one line per prompt with `model`, `prompt_id`,
+`prompt`, `text`, `generated_tokens`, `seconds` and `nfe`).
+
+```
+bash runs/submit_all.sh pretrain -p <partition>
+uv run --no-sync python -m plm.eval.table results/pretrain        # tokens/s and tokens/call, mean ± 95% CI over the three seeds
+```
 
 ### The distilled model
 
@@ -90,7 +115,7 @@ LoRA adapter (rank 256, `gated_lora.safetensors`) and a small auxiliary embeddin
 teacher's own weights and only the proposal rows add the adapter, so exact decoding samples exactly the teacher's
 distribution. Its random values blend the auxiliary embedding and decode by inverse CDF over the teacher's 128 likeliest
 tokens at temperature 1, which is ordinary top-128 sampling. Its AR row, `ar-1.3B` with
-`--ar-sampler voronoi --ar-voronoi-scheme checkpoints/posttrain/ptp-lora-1.3B` (`ar-lora` in `runs/`), applies the same
+`--ar-sampler voronoi --ar-voronoi-scheme checkpoints/posttrain/ptp-lora-1.3B` (`ar-lora` in `runs/posttrain/`), applies the same
 inverse-CDF rule to the same seeded random values one token at a time, so it is theoretically token-identical to the
 distilled model's exact decoding for the same seed. It decodes with the post-training defaults (exact `k = 7`; relaxed
 `k = 10`, top-0.94 nucleus):
@@ -119,19 +144,20 @@ seed, every continuation with its timing and the number of tokens accepted per r
 
 ## Reproducing Table 11
 
-Every run of Table 11 has its own frozen job in `runs/`: one per model, decoding and benchmark, with all flags pinned.
+Every run of Table 11 has its own frozen job in `runs/posttrain/`: one per model, decoding and benchmark, with all flags pinned.
 There are 72 in total: ar-topk, ar-voronoi, exact and relaxed for each PLM, and ar-topk and ar-voronoi for `ar-1.3B`,
 each on four benchmarks, plus 12 for the distilled model (`ptp-lora-1.3B` exact and relaxed, and `ar-1.3B` ar-lora). Each job generates over a warm-up pass and seeds 0, 1 and 2, grades the run, and writes
-`results/<model>-<decoding>/<benchmark>.json` and `.score.json`.
+`results/posttrain/<model>-<decoding>/<benchmark>.json` and `.score.json`.
 
 ```
-bash runs/submit_all.sh -p <partition>                  # builds the prompts, then sbatch runs/*.sbatch with your arguments
-bash runs/plm-1.3B-beta1-exact-gsm8k.sbatch             # or run one job directly, without Slurm
-uv run --no-sync python -m plm.eval.table results       # Table 11, mean ± 95% CI over the three seeds
+bash runs/submit_all.sh posttrain -p <partition>                  # builds the prompts, then sbatch runs/posttrain/*.sbatch with your arguments
+bash runs/posttrain/plm-1.3B-beta1-exact-gsm8k.sbatch             # or run one job directly, without Slurm
+uv run --no-sync python -m plm.eval.table results/posttrain       # Table 11, mean ± 95% CI over the three seeds
 ```
 
 The job headers are site-neutral (one GPU, 6 hours, logs in `results/logs/`). `CHECKPOINTS` overrides the model
-directory (default `checkpoints/`; the jobs read `$CHECKPOINTS/posttrain/<name>`). `scripts/make_runs.py` regenerates the jobs.
+directory (default `checkpoints/`; the jobs read `$CHECKPOINTS/posttrain/<name>`). `scripts/make_runs.py` regenerates the jobs
+of both settings.
 
 The table prints every metric as the mean over seeds ± a two-sided 95% Student-t interval (n = 3). The `.score.json`
 files also record the standard deviation, the per-seed values and the per-question grades. To grade a single run by
@@ -157,7 +183,8 @@ The exact tokens also depend on the GPU architecture, since kernel selection and
 | `plm/generate.py` | the CLI: generation over a dataset, with timing |
 | `plm/config.py` | `--mode` / `--match` / `--k`, and how the engines are built |
 | `plm/eval/` | prompt building, grading and the results table |
-| `runs/`, `scripts/make_runs.py` | one frozen job per Table 11 run, and their generator |
+| `runs/posttrain/`, `runs/pretrain/`, `scripts/make_runs.py` | one frozen job per Table 11 and per Figure 1 run, and their generator |
+| `data/fineweb-edu/`, `plm/eval/judge_samples.py` | the judge's 200 FineWeb-Edu prompts, and the converter to its samples format |
 | `vllm_plm/decoder.py` | the round decoder: captured prefill, round-0 and steady-round graphs |
 | `vllm_plm/mask.py` | the round's attention mask and layout |
 | `vllm_plm/auxiliary.py`, `vllm_plm/iterate.py` | the Voronoi rule's random values, partition table and assignment engine (Triton) |
