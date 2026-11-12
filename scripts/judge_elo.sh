@@ -3,7 +3,7 @@
 # players' continuations of the same openings, in both orders, and a Bradley-Terry fit turns the verdicts into Elo.
 #
 #   bash scripts/judge_elo.sh results/pretrain/samples results/pretrain/elo          # here, one judge worker per GPU
-#   sbatch --gres=gpu:4 scripts/judge_elo.sh results/pretrain/samples results/pretrain/elo
+#   sbatch scripts/judge_elo.sh results/pretrain/samples results/pretrain/elo        # one GPU by default; --gres=gpu:4 for four
 #   bash scripts/judge_elo.sh results/pretrain/samples results/pretrain/elo-qwen Qwen/Qwen2.5-7B-Instruct
 #
 # The optional third argument is the judge: any Hugging Face chat model id (or local directory) whose tokenizer encodes
@@ -24,6 +24,7 @@
 #SBATCH --job-name=judge-elo
 #SBATCH --time=04:00:00
 #SBATCH --nodes=1
+#SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --output=results/logs/%x-%j.log

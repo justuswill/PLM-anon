@@ -1,7 +1,7 @@
 # Parallel Language Models: inference
 
 Anonymous code release for *Parallel Language Models via Variational Decoding*. This repository contains everything
-needed to reproduce the post-training results (Table 11):
+needed to reproduce the post-training results (Table 11), and the pretraining results (Figure 1) for the 1.3B and 3B models:
 generation with the released checkpoints on vLLM, and grading on GSM8K, MATH-500, HumanEval and IFEval.
 
 A PLM decodes in rounds. Each round runs one forward pass over `k` verify rows, which check the tokens proposed in
@@ -86,7 +86,30 @@ token-identical to `--match exact` for the same seed. A plain AR model has no su
 borrows it from the β = 1 PLM of the same size (all PLMs of one size share it).
 
 The pretrained models' runs are in [Reproducing Figure 1](#reproducing-figure-1), the post-trained models' in
-[Reproducing Table 11](#reproducing-table-11).
+[Reproducing Table 11](#reproducing-table-11). `scripts/make_runs.py` regenerates the evaluation jobs of both settings.
+
+## Generating
+
+```
+uv run python -m bench.generate --model checkpoints/posttrain/plm-1.3B-beta1 --mode fast --match exact --k 7 \
+    --dataset prompts.json --tokens 512 --stop-at-eos --seeds 0 1 2 --out results.json
+```
+
+`--dataset` is a JSON list of prompt strings.
+`--ar`, `--eagle3` and `--fdv2` choose the autoregressive decoding and the baselines below; they run stock vLLM kernels on any compatible GPU.
+Every decoding samples at temperature 1, except the greedy ones, and runs the dataset `1 + len(--seeds)` times: a warm-up pass,
+which pays graph capture and compilation and is discarded, then one pass per seed.
+The results file records, for each seed, every continuation with its timing and model calls, and for parallel rounds the tokens accepted per round.
+Speed is single-stream wall-clock time, prefill included, and depends on the GPU.
+The exact tokens also depend on the GPU architecture, since kernel selection and autotuning differ between GPUs.
+
+
+### PLM
+- `--match` and `--k` choose the decoding. `--mode fast` sends the round's GEMMs through Triton tiles tuned on an **RTX 6000 Ada**, for the paper's round
+  widths (`k = 7` and `k = 10` post-trained, `k = 6` pretrained); a width without tiles is an error. `--mode default`
+  is stock vLLM with no patching and runs on any GPU vLLM supports. Both modes run the same algorithm, but the Triton GEMMs round differently from cuBLAS, so long generations
+  can occasionally differ between the two. The paper's numbers use `fast`; on other GPUs, use `default`.
+
 
 ### PTP baseline
 
@@ -122,91 +145,55 @@ uv run --no-sync python -m bench.generate --model checkpoints/posttrain/ar-1.3B 
 ### Fast-dLLM v2 baseline
 
 `posttrain/fdv2-1.3B` is `ar-1.3B` converted to block diffusion with Fast-dLLM v2 (FDv2) and fine-tuned, so it is a different
-model from `ar-1.3B` and no decoding of it reproduces `ar-1.3B`'s distribution. It is a plain Llama export. The baseline lives
-in its own package, `fastdllmv2/`, which shares no code path with the PLM decoders: `bench.generate --fdv2` serves
-it through `fastdllmv2/sampler.py`, the reference FDv2 sampler: 32-token canvases at 32-aligned positions with an exact block-causal
+model from `ar-1.3B` and no decoding of it reproduces `ar-1.3B`'s distribution. It uses 32-token blocks with an exact block-causal
 cache, sub-blocks of 8 in order, and in each pass every masked position of the active sub-block is sampled (temperature 1 over
 the 128 likeliest tokens, as for the other decodings, or greedily with `--fdv2-temperature 0`) and those above
 `--fdv2-threshold` are kept, plus the most confident one. A lower threshold unmasks more tokens per pass; at 1 it unmasks one
 token a pass.
-`tokens/call` counts the prefill as one call and every denoising and commit pass as one.
 
 ```
 uv run --no-sync python -m bench.generate --model checkpoints/posttrain/fdv2-1.3B --fdv2 --fdv2-threshold 0.9 \
     --dataset prompts.json --tokens 512 --stop-at-eos --seeds 0 1 2 --out results.json
 ```
 
-## Generating
-
-```
-uv run python -m bench.generate --model checkpoints/posttrain/plm-1.3B-beta1 --mode fast --match exact --k 7 \
-    --dataset prompts.json --tokens 512 --stop-at-eos --seeds 0 1 2 --out results.json
-```
-
-`--dataset` is a JSON list of prompt strings. One process runs the dataset `1 + len(--seeds)` times: a warm-up pass,
-which pays graph capture and compilation and is discarded, then one pass per seed. The results file records, for each
-seed, every continuation with its timing and the number of tokens accepted per round.
-
-- `--mode fast` sends the round's GEMMs through Triton tiles tuned on an **RTX 6000 Ada**, for the paper's round
-  widths (`k = 7` and `k = 10` post-trained, `k = 6` pretrained); a width without tiles is an error. `--mode default`
-  is stock vLLM with no patching and runs on any GPU vLLM supports. Both modes run the same algorithm, but the Triton GEMMs round differently from cuBLAS, so long generations
-  can occasionally differ between the two. The paper's numbers use `fast`; on other GPUs, use `default`.
-- `--match`, `--k` and `--ar` choose the decoding.
-
 ## Reproducing Figure 1
 
 Figure 1 places every model by its quality, the Elo of a pairwise LLM-judge tournament on FineWeb-Edu continuations,
-against its single-stream speed. This repository reproduces it for the pretrained 1.3B and 3B models, every decoding
-of them; the paper's baselines (off-the-shelf autoregressive and diffusion language
-models) and the 350M PLM are not included. Elo is relative to the field it is fitted on, so the values shift from the
-paper's: here `vllm_ar_1.3b_pre_ar_topk` (`ar-1.3B`, top-k sampling) sits at 1000.
-
+against its single-stream speed. Off-the-shelf autoregressive and diffusion language models are not included.
+Elo is relative to the field it is fitted on, so the values might shift from the paper's. `vllm_ar_1.3b_pre_ar_topk` (`ar-1.3B`, top-k sampling) sits at 1000.
 `runs/pretrain/` holds one frozen job per pretrained 1.3B and 3B model and decoding (ar-topk, ar-voronoi, exact and
 relaxed, and `ar-1.3B`'s two AR rows), 18 in total, on the judge's 200 prompts (`data/fineweb-edu/`) under its contract:
-128 tokens with no stop at EOS, temperature 1 over the 128 likeliest tokens. Each job writes
+128 tokens, temperature 1 over the 128 likeliest tokens. Each job writes
 `results/pretrain/<model>-<decoding>/fineweb-edu.json` over a warm-up pass and seeds 0, 1 and 2, and turns seed 0 into
 the judge's samples file.
 
 ```
-bash scripts/download.sh --pretrain                                # the pretrained models
+bash scripts/download.sh --pretrain                                  # the pretrained models
 uv sync --extra eval
-bash runs/submit_all.sh pretrain -p <partition>                   # 18 jobs, 3 to 15 minutes each on an RTX 6000 Ada
+bash runs/submit_all.sh pretrain -p <partition>                      # 18 jobs, 3 to 15 minutes each on an RTX 6000 Ada
 uv run --no-sync python -m bench.eval.table results/pretrain         # tokens/s and tokens/call, mean ± 95% CI over the three seeds
-sbatch --gres=gpu:4 scripts/judge_elo.sh results/pretrain/samples results/pretrain/elo     # or bash ..., without Slurm
+sbatch scripts/judge_elo.sh results/pretrain/samples results/pretrain/elo
 uv run --no-sync python -m bench.judge.figure1 --samples results/pretrain/samples \
     --elo results/pretrain/elo/elo.json --out results/pretrain/figure1.png
 ```
 
-Each player is one samples file, `results/pretrain/samples/<player>.jsonl`, with seed 0's continuations of the 200
-prompts. The judge is the optional third argument of `scripts/judge_elo.sh`, a Hugging Face model id (default
-`microsoft/phi-4`, about 30 GB, downloaded on first use; any chat model whose tokenizer has A, B and C as single tokens).
-It meets each player with 400 random opponents, each on a
-random prompt, cuts both continuations to a common length (at most 128 GPT-2 tokens), and reads its probabilities for
-A, B or C (about equal) after showing the opening and both continuations; every pair is judged in both orders and is a
-win only when both agree. A Bradley-Terry fit turns the outcomes into Elo, with 95% intervals from 1000 resamples of
+The judge is the optional third argument of `scripts/judge_elo.sh`, a Hugging Face model id (default
+`microsoft/phi-4`); every pair is judged in both orders and is a win only when both agree.
+A Bradley-Terry fit turns the outcomes into Elo, with 95% intervals from 1000 resamples of
 whole prompts, and `elo.md` also reports the judge's swap consistency, first-position bias, tie rate and split-half
-rank agreement. Every judge call is cached (`results/judge-cache/`), so adding a player judges only its own pairs. The
-other settings (meetings, anchor, length cap, engine) are environment variables at the top of `scripts/judge_elo.sh`; `ENGINE=mock` runs the whole pipeline without a GPU. `bench.judge.figure1` prints the joined
-table (Elo and end-to-end tokens per second) and draws the figure.
+rank agreement. Every judge call is cached (`results/judge-cache/`), so adding a player judges only its own pairs.
 
 ## Reproducing Table 11
 
 Every run of Table 11 has its own frozen job in `runs/posttrain/`: one per model, decoding and benchmark, with all flags pinned.
-There are 72 in total: ar-topk, ar-voronoi, exact and relaxed for each PLM, and ar-topk and ar-voronoi for `ar-1.3B`,
-each on four benchmarks, plus 12 for the distilled model (`ptp-lora-1.3B` exact and relaxed, and `ar-1.3B` ar-icdf), 8 for
-`ar-1.3B` with its EAGLE-3 head (`eagle3`, the chain, and `eagle3-tree`) and 24 for the FDv2 baseline: `fdv2-1.3B` at thresholds 1, 0.95, 0.7 and 0.3 (`t1` … `t0.3`, temperature 1 over the 128 likeliest tokens) and
-greedy at threshold 1 (`greedy-t1`), with `ar-1.3B`'s greedy decode (`ar-greedy`) to compare it with. Each job generates over a warm-up pass and seeds 0, 1 and 2, grades the run, and writes
+Each job generates over a warm-up pass and seeds 0, 1 and 2, grades the run, and writes
 `results/posttrain/<model>-<decoding>/<benchmark>.json` and `.score.json`.
 
 ```
-bash runs/submit_all.sh posttrain -p <partition>                  # builds the prompts, then sbatch runs/posttrain/*.sbatch with your arguments
-bash runs/posttrain/plm-1.3B-beta1-exact-gsm8k.sbatch             # or run one job directly, without Slurm
+bash runs/submit_all.sh posttrain -p <partition>                    # builds the prompts, then sbatch runs/posttrain/*.sbatch with your arguments
+bash runs/posttrain/plm-1.3B-beta1-exact-gsm8k.sbatch               # or run one job directly, without Slurm
 uv run --no-sync python -m bench.eval.table results/posttrain       # Table 11, mean ± 95% CI over the three seeds
 ```
-
-The job headers are site-neutral (one GPU, 6 hours, logs in `results/logs/`). `CHECKPOINTS` overrides the model
-directory (default `checkpoints/`; the jobs read `$CHECKPOINTS/posttrain/<name>`). `scripts/make_runs.py` regenerates the jobs
-of both settings.
 
 The table prints every metric as the mean over seeds ± a two-sided 95% Student-t interval (n = 3). The `.score.json`
 files also record the standard deviation, the per-seed values and the per-question grades. To grade a single run by
@@ -219,22 +206,16 @@ uv run --no-sync python -m bench.generate --model checkpoints/posttrain/plm-1.3B
 uv run --no-sync python -m bench.eval.score --benchmark gsm8k --results gsm8k.json --tasks prompts/gsm8k/tasks.json
 ```
 
-Round width: `--k 7` for exact decoding, and for relaxed decoding `--k 10` on the 1.3B models and `--k 7` on the 3B.
-All decodings sample at temperature 1.
-
-Speed is single-stream wall-clock time, prefill included, and depends on the GPU.
-The exact tokens also depend on the GPU architecture, since kernel selection and autotuning differ between GPUs.
-
 ## Layout
 
 | path | contents |
 |---|---|
-| `bench/generate.py`, `bench/harness.py`, `bench/engine.py` | the CLI: generation over a dataset, with timing; the measurement harness and engine settings the baselines' CLIs share |
+| `bench/generate.py`, `bench/harness.py`, `bench/engine.py` | the CLI: generation over a dataset, with timing; the measurement harness and engine settings every decoding shares |
 | `bench/ar.py` | autoregressive decoding on stock vLLM (`--ar`) |
 | `plm/rounds.py` | `--setting` / `--mode` / `--match` / `--k`, and how the round decoder is built |
 | `bench/eval/` | prompt building, grading and the results table |
 | `runs/posttrain/`, `runs/pretrain/`, `scripts/make_runs.py` | one frozen job per Table 11 and per Figure 1 run, and their generator |
-| `data/fineweb-edu/`, `plm/eval/judge_samples.py` | the judge's 200 FineWeb-Edu prompts, and the converter to its samples format |
+| `data/fineweb-edu/`, `bench/eval/judge_samples.py` | the judge's 200 FineWeb-Edu prompts, and the converter to its samples format |
 | `bench/judge/`, `scripts/judge_elo.sh` | the LLM-judge tournament: schedule, judge, Elo fit, and the Figure 1 table and plot |
 | `plm/decoder.py` | the round decoder: captured prefill, round-0 and steady-round graphs |
 | `plm/mask.py` | the round's attention mask and layout |
