@@ -23,10 +23,12 @@ PLMS = {"plm-1.3B-beta0.5": 10, "plm-1.3B-beta1": 10, "plm-1.3B-beta2": 10, "plm
 SCHEME_FOR_AR_BASELINE = "plm-1.3B-beta1"
 DISTILLED = "ptp-lora-1.3B"   # gated-LoRA model distilled from ar-1.3B; ar-lora is its exact decode run autoregressively on ar-1.3B
 PRETRAINED_PLMS = ("plm-1.3B-beta0.5", "plm-1.3B-beta1", "plm-1.3B-beta2", "plm-3B-beta1")
+FDV2 = "fdv2-1.3B"   # Fast-dLLM v2 converted from ar-1.3B
+FDV2_THRESHOLDS = (1, 0.95, 0.7, 0.3)
 
 
 def posttrain_decodings() -> list[tuple[str, str, str]]:
-    """(model, decoding, generate flags) for every Table 11 row, then the distilled model's rows."""
+    """(model, decoding, generate flags) for every Table 11 row, then the distilled model's rows, then FDv2 at each threshold and greedy, with ar-1.3B's greedy decode."""
     rows = [("ar-1.3B", "ar-topk", "--ar --ar-sampler topk"),
             ("ar-1.3B", "ar-voronoi", f'--ar --ar-sampler voronoi --ar-voronoi-scheme "$CHECKPOINTS/posttrain/{SCHEME_FOR_AR_BASELINE}"')]
     for model, relaxed_k in PLMS.items():
@@ -34,6 +36,9 @@ def posttrain_decodings() -> list[tuple[str, str, str]]:
                  (model, "exact", "--mode fast --match exact --k 7"), (model, "relaxed", f"--mode fast --match relaxed --k {relaxed_k}")]
     rows += [(DISTILLED, "exact", "--mode fast --match exact --k 7"), (DISTILLED, "relaxed", "--mode fast --match relaxed --k 10"),
              ("ar-1.3B", "ar-lora", f'--ar --ar-sampler voronoi --ar-voronoi-scheme "$CHECKPOINTS/posttrain/{DISTILLED}"')]
+    rows += [(FDV2, f"t{threshold}", f"--fdv2 --fdv2-threshold {threshold}") for threshold in FDV2_THRESHOLDS]
+    # Greedy, against ar-1.3B's greedy decode: FDv2 at threshold 1 unmasks one token a pass.
+    rows += [(FDV2, "greedy-t1", "--fdv2 --fdv2-threshold 1 --fdv2-temperature 0"), ("ar-1.3B", "ar-greedy", "--ar --ar-sampler greedy")]
     return rows
 
 

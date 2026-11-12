@@ -15,6 +15,6 @@ def register() -> None:
 
     AutoConfig.register("plm", PLMConfig, exist_ok=True)
     AutoConfig.register("ptp", PTPConfig, exist_ok=True)
-    for architecture in ("PLMForCausalLM", "PLMBackboneForCausalLM", "PTPForCausalLM"):
+    for architecture, module in (("PLMForCausalLM", "model"), ("PLMBackboneForCausalLM", "model"), ("PTPForCausalLM", "model"), ("Fdv2ForBlockDiffusion", "fdv2")):
         if architecture not in ModelRegistry.get_supported_archs():
-            ModelRegistry.register_model(architecture, f"vllm_plm.model:{architecture}")
+            ModelRegistry.register_model(architecture, f"vllm_plm.{module}:{architecture}")

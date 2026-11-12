@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import zlib
 from collections.abc import Callable
 from pathlib import Path
 
@@ -39,6 +40,8 @@ def ar_sampling(args: argparse.Namespace, seed: int):
 
     if args.ar_sampler == "voronoi":   # the processor leaves one finite logit per row; greedy reads it off
         return SamplingParams(max_tokens=args.tokens, ignore_eos=not args.stop_at_eos, temperature=0.0, extra_args={"aux_seed": seed})
+    if args.ar_sampler == "greedy":
+        return SamplingParams(max_tokens=args.tokens, ignore_eos=not args.stop_at_eos, temperature=0.0)
     return SamplingParams(max_tokens=args.tokens, ignore_eos=not args.stop_at_eos, temperature=1.0, top_k=TOP_K, seed=seed)
 
 
@@ -48,6 +51,39 @@ def run_ar(llm, prompt: str, params) -> dict:
     ms = 1000 * (time.perf_counter() - started)
     emitted = len(output.token_ids)
     return speed_record(prompt, output.text, [0] * emitted, emitted, emitted, ms, ms, emitted)
+
+
+def fdv2_passes(worker) -> tuple[int, int]:
+    sampler = worker.model_runner.sampler
+    return sampler.prefill_passes, sampler.decode_passes
+
+
+def seed_fdv2(worker, seed: int) -> None:
+    import torch
+
+    torch.manual_seed(seed)
+
+
+def run_fdv2(llm, prompt: str, tokens: int, seed: int) -> dict:
+    """The prompt up to its last 32-aligned boundary is prefilled; the rest opens the first canvas. The prefill counts as one call, as for the other decodings."""
+    from vllm import SamplingParams
+    from vllm.inputs import TokensPrompt
+
+    ids = llm.get_tokenizer()(prompt, add_special_tokens=False)["input_ids"]
+    aligned = (len(ids) - 1) // plm_config.FDV2_CANVAS * plm_config.FDV2_CANVAS
+    prefix, tail = (ids[:aligned], ids[aligned:]) if aligned else (ids, [])
+    # Seeded per prompt so a pass does not depend on what ran before it in the process.
+    llm.collective_rpc(seed_fdv2, args=(seed * 2**32 + zlib.crc32(prompt.encode()),))
+    _, decode_before = llm.collective_rpc(fdv2_passes)[0]
+    started = time.perf_counter()
+    output = llm.generate([TokensPrompt(prompt_token_ids=prefix)], SamplingParams(max_tokens=tokens + len(tail), extra_args={"fdv2_tail": tail}), use_tqdm=False)[0].outputs[0]
+    ms = 1000 * (time.perf_counter() - started)
+    _, decode_after = llm.collective_rpc(fdv2_passes)[0]
+    answer = list(output.token_ids)[len(tail):]
+    if answer and answer[-1] == plm_config.FDV2_EOD_TOKEN_ID:
+        answer = answer[:-1]
+    calls = 1 + decode_after - decode_before
+    return speed_record(prompt, llm.get_tokenizer().decode(answer, skip_special_tokens=True), [], calls, len(answer), ms, ms, len(answer))
 
 
 def run_plm(decoder, prompt: str, tokens: int, stop_at_eos: bool, seed: int) -> dict:
@@ -79,12 +115,19 @@ def aggregate(records: list[dict]) -> dict:
 
 
 def build_generator(args: argparse.Namespace) -> tuple[dict, Callable[[str, int], dict]]:
+    if args.fdv2:
+        if not args.stop_at_eos:
+            raise SystemExit("--fdv2 decodes until the end-of-text token: pass --stop-at-eos")
+        llm = plm_config.build_fdv2(args.model, args.max_model_len, args.fdv2_threshold, args.fdv2_temperature)
+        described = {"decoding": "fdv2", "model": args.model, "dtype": "bfloat16", "threshold": args.fdv2_threshold, "temperature": args.fdv2_temperature,
+                     "top_k": TOP_K if args.fdv2_temperature else None, "canvas": plm_config.FDV2_CANVAS, "sub_block": 8}
+        return described, lambda prompt, seed: run_fdv2(llm, prompt, args.tokens, seed)
     if args.ar:
         dtype = args.ar_dtype or plm_config.AR_DTYPE[args.ar_sampler]
         scheme = (args.ar_voronoi_scheme or args.model) if args.ar_sampler == "voronoi" else None
         llm = plm_config.build_ar(args.model, dtype, args.max_model_len, scheme)
         described = {"decoding": f"ar-{args.ar_sampler}", "model": args.model, "dtype": dtype,
-                     "voronoi_scheme": scheme, "top_k": TOP_K if args.ar_sampler == "topk" else None}
+                     "voronoi_scheme": scheme, "top_k": TOP_K if args.ar_sampler == "topk" else None, "temperature": 0.0 if args.ar_sampler == "greedy" else 1.0}
         return described, lambda prompt, seed: run_ar(llm, prompt, ar_sampling(args, seed))
     round_config = plm_config.from_args(args)
     decoder = round_config.build()

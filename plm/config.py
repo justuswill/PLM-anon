@@ -33,7 +33,7 @@ SETTINGS = {
     "pretrain": Setting(default_k={"exact": 6, "relaxed": 6}, relaxed_rule=("floor", 2e-3)),
 }
 # The Voronoi sampler runs in the parallel rounds' float16 so the two decodes match token for token; top-k AR runs in the training dtype.
-AR_DTYPE = {"voronoi": "float16", "topk": "bfloat16"}
+AR_DTYPE = {"voronoi": "float16", "topk": "bfloat16", "greedy": "bfloat16"}
 TOP_K = 128
 
 
@@ -98,6 +98,27 @@ def build_ar(model: str, dtype: str, max_model_len: int, voronoi_scheme: str | N
                kv_cache_memory_bytes=KV_CACHE_BYTES, max_num_seqs=1, **extra)
 
 
+FDV2_CANVAS = 32
+FDV2_MASK_TOKEN_ID = 50257
+FDV2_EOD_TOKEN_ID = 50256
+
+
+def build_fdv2(model: str, max_model_len: int, threshold: float, temperature: float):
+    """A Fast-dLLM v2 export served by vllm_plm.fdv2's threshold sampler, one 32-token canvas per pass: greedy at temperature 0,
+    otherwise sampling the 128 likeliest tokens like the other decodings."""
+    # The sampler is built inside the engine core process before any request, so it reads its contract from the environment.
+    os.environ["FDV2_THRESHOLD"] = str(threshold)
+    os.environ["FDV2_TEMPERATURE"] = str(temperature)
+    os.environ["FDV2_TOP_K"] = str(TOP_K)
+    os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"   # the driver reads the sampler's pass counts through collective_rpc
+    from vllm import LLM
+
+    return LLM(model=model, dtype="bfloat16", max_model_len=max_model_len, enable_prefix_caching=False,
+               hf_overrides={"canvas_length": FDV2_CANVAS, "mask_token_id": FDV2_MASK_TOKEN_ID, "architectures": ["Fdv2ForBlockDiffusion"]},
+               diffusion_config={"canvas_length": FDV2_CANVAS, "max_denoising_steps": FDV2_CANVAS}, attention_backend="TRITON_ATTN",
+               max_num_seqs=1, max_num_batched_tokens=FDV2_CANVAS, gpu_memory_utilization=GPU_MEMORY_UTILIZATION, kv_cache_memory_bytes=KV_CACHE_BYTES)
+
+
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", required=True, help="a downloaded model directory, e.g. checkpoints/posttrain/plm-1.3B-beta1")
     parser.add_argument("--setting", default="posttrain", choices=tuple(SETTINGS),
@@ -110,9 +131,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--ar", action="store_true", help="autoregressive decoding with stock vLLM instead; ignores --mode, --match and --k")
     parser.add_argument("--ar-sampler", default="voronoi", choices=tuple(AR_DTYPE),
                         help="voronoi: a PLM's own decode rule on the seeded random values, theoretically token-identical to --match exact. "
-                             "topk: temperature 1 over the 128 likeliest tokens")
+                             "topk: temperature 1 over the 128 likeliest tokens. greedy: the likeliest token")
     parser.add_argument("--ar-dtype", default="", choices=("", "bfloat16", "float16"), help="default: float16 for voronoi, bfloat16 for topk")
     parser.add_argument("--ar-voronoi-scheme", default="", help="PLM export whose auxiliary scheme --ar-sampler voronoi decodes with; default the model's own")
+    parser.add_argument("--fdv2", action="store_true", help="the model is a Fast-dLLM v2 export: decode it by block diffusion; needs --stop-at-eos")
+    parser.add_argument("--fdv2-threshold", type=float, default=0.9, help="with --fdv2: unmask every position above this probability (>= 1: one a pass)")
+    parser.add_argument("--fdv2-temperature", type=float, default=1.0, choices=(0.0, 1.0), help="with --fdv2: 1 samples the 128 likeliest tokens, 0 is greedy")
 
 
 def from_args(args: argparse.Namespace) -> RoundConfig:

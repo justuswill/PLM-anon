@@ -40,6 +40,7 @@ Post-trained models (`posttrain/`), the ones this repository runs:
 | `posttrain/plm-3B-beta1` | 3B | 1 | PLM, SFT + DPO | 3B β = 1 |
 | `posttrain/ptp-lora-1.3B` | 1.3B | – | gated-LoRA parallel decoder distilled from `ar-1.3B` |  |
 | `posttrain/eagle3-ar-1.3B` | 1-layer head | – | EAGLE-3 draft head for `posttrain/ar-1.3B`, ~1.6B tokens |  |
+| `posttrain/fdv2-1.3B` | 1.3B | – | Fast-dLLM v2 block diffusion, converted from `ar-1.3B` |  |
 
 Pretrained models (`pretrain/`). Training tokens are optimizer steps × global batch × 4096-token sequences.
 
@@ -135,6 +136,22 @@ uv run --no-sync python -m eagle3.generate --model checkpoints/posttrain/ar-1.3B
     --dataset prompts.json --tokens 512 --stop-at-eos --seeds 0 1 2 --out results.json          # add --tree for the draft tree
 ```
 
+### Fast-dLLM v2 baseline
+
+`posttrain/fdv2-1.3B` is `ar-1.3B` converted to block diffusion with Fast-dLLM v2 (FDv2) and fine-tuned, so it is a different
+model from `ar-1.3B` and no decoding of it reproduces `ar-1.3B`'s distribution. It is a plain Llama export; `--fdv2` serves it
+through `vllm_plm/fdv2.py`, the reference FDv2 sampler: 32-token canvases at 32-aligned positions with an exact block-causal
+cache, sub-blocks of 8 in order, and in each pass every masked position of the active sub-block is sampled (temperature 1 over
+the 128 likeliest tokens, as for the other decodings, or greedily with `--fdv2-temperature 0`) and those above
+`--fdv2-threshold` are kept, plus the most confident one. A lower threshold unmasks more tokens per pass; at 1 it unmasks one
+token a pass.
+`tokens/call` counts the prefill as one call and every denoising and commit pass as one.
+
+```
+uv run --no-sync python -m plm.generate --model checkpoints/posttrain/fdv2-1.3B --fdv2 --fdv2-threshold 0.9 \
+    --dataset prompts.json --tokens 512 --stop-at-eos --seeds 0 1 2 --out results.json
+```
+
 ## Generating
 
 ```
@@ -186,7 +203,8 @@ table (Elo and end-to-end tokens per second) and draws the figure.
 Every run of Table 11 has its own frozen job in `runs/posttrain/`: one per model, decoding and benchmark, with all flags pinned.
 There are 72 in total: ar-topk, ar-voronoi, exact and relaxed for each PLM, and ar-topk and ar-voronoi for `ar-1.3B`,
 each on four benchmarks, plus 12 for the distilled model (`ptp-lora-1.3B` exact and relaxed, and `ar-1.3B` ar-lora), 8 for
-`ar-1.3B` with its EAGLE-3 head (`eagle3`, the chain, and `eagle3-tree`). Each job generates over a warm-up pass and seeds 0, 1 and 2, grades the run, and writes
+`ar-1.3B` with its EAGLE-3 head (`eagle3`, the chain, and `eagle3-tree`) and 24 for the FDv2 baseline: `fdv2-1.3B` at thresholds 1, 0.95, 0.7 and 0.3 (`t1` … `t0.3`, temperature 1 over the 128 likeliest tokens) and
+greedy at threshold 1 (`greedy-t1`), with `ar-1.3B`'s greedy decode (`ar-greedy`) to compare it with. Each job generates over a warm-up pass and seeds 0, 1 and 2, grades the run, and writes
 `results/posttrain/<model>-<decoding>/<benchmark>.json` and `.score.json`.
 
 ```
@@ -233,4 +251,5 @@ The exact tokens also depend on the GPU architecture, since kernel selection and
 | `vllm_plm/fast_gemm.py`, `vllm_plm/gemm_tables.py`, `vllm_plm/gpu_tuning/` | `--mode fast` |
 | `vllm_plm/voronoi_ar.py` | the PLM decode rule as a vLLM logits processor, for the AR baseline |
 | `eagle3/` | the EAGLE-3 baseline: `generate.py` (CLI), `chain.py` (vLLM speculative decoding, `draft_topk.py` its `--draft topk` patch), `tree.py` and `tree_head.py` (the draft tree) |
+| `vllm_plm/fdv2.py` | the Fast-dLLM v2 baseline's block-diffusion sampler and model state (`--fdv2`) |
 | `vllm_plm/model.py`, `vllm_plm/config.py` | the vLLM model classes, registered through a vLLM plugin entry point |

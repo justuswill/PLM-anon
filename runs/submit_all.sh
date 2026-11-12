@@ -1,6 +1,6 @@
 #!/bin/bash
 # Submit every run of one setting; extra arguments go to each sbatch call, e.g. bash runs/submit_all.sh posttrain -p <partition> -A <account>.
-#   posttrain: Table 11, the distilled model and the EAGLE-3 baseline (92 jobs).  pretrain: the pretrained 1.3B and 3B models on the Figure 1 prompts (18 jobs).
+#   posttrain: Table 11, the distilled model and the EAGLE-3 and FDv2 baselines (116 jobs).  pretrain: the pretrained 1.3B and 3B models on the Figure 1 prompts (18 jobs).
 # Run from the repository root. Benchmark prompts are built first so that concurrent jobs do not race to write them.
 set -euo pipefail
 
