@@ -173,8 +173,8 @@ uv sync --extra eval
 bash runs/submit_all.sh pretrain -p <partition>                      # 18 jobs, 3 to 15 minutes each on an RTX 6000 Ada
 uv run --no-sync python -m bench.eval.table results/pretrain         # tokens/s and tokens/call, mean ± 95% CI over the three seeds
 sbatch scripts/judge_elo.sh results/pretrain/samples results/pretrain/elo
-uv run --no-sync python -m bench.judge.figure1 --samples results/pretrain/samples \
-    --elo results/pretrain/elo/elo.json --out results/pretrain/figure1.png
+uv run --no-sync python -m bench.judge.table --samples results/pretrain/samples \
+    --elo results/pretrain/elo/elo.json --csv results/pretrain/figure1.csv   # Elo and tokens/s per player
 ```
 
 The judge is the optional third argument of `scripts/judge_elo.sh`, a Hugging Face model id (default
@@ -216,7 +216,7 @@ uv run --no-sync python -m bench.eval.score --benchmark gsm8k --results gsm8k.js
 | `bench/eval/` | prompt building, grading and the results table |
 | `runs/posttrain/`, `runs/pretrain/`, `scripts/make_runs.py` | one frozen job per Table 11 and per Figure 1 run, and their generator |
 | `data/fineweb-edu/`, `bench/eval/judge_samples.py` | the judge's 200 FineWeb-Edu prompts, and the converter to its samples format |
-| `bench/judge/`, `scripts/judge_elo.sh` | the LLM-judge tournament: schedule, judge, Elo fit, and the Figure 1 table and plot |
+| `bench/judge/`, `scripts/judge_elo.sh` | the LLM-judge tournament: schedule, judge, Elo fit, and the Figure 1 table (Elo and tokens/s) |
 | `plm/decoder.py` | the round decoder: captured prefill, round-0 and steady-round graphs |
 | `plm/mask.py` | the round's attention mask and layout |
 | `plm/auxiliary.py`, `plm/iterate.py` | the Voronoi rule's random values, partition table and assignment engine (Triton) |

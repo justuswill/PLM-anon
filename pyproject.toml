@@ -19,7 +19,6 @@ eval = [
     "absl-py",
     "immutabledict",
     "langdetect",
-    "matplotlib>=3.11.2",
 ]
 
 # vLLM loads these in every process it spawns: the PLM and FDv2 model classes for its engine, and the EAGLE-3 baseline's draft patch.
