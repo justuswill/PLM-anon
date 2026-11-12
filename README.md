@@ -27,7 +27,7 @@ bash scripts/download.sh posttrain/plm-1.3B-beta1   # or some of them
 bash scripts/download.sh --pretrain                 # also the pretrained models
 ```
 
-The checkpoints can also be browsed at https://anonymous-hf.com/a/gk540ibws5qh/.
+The checkpoints can also be browsed at https://anonymous-hf.com/a/5ks2lx5rn3fa/.
 
 Post-trained models (`posttrain/`), the ones this repository runs:
 

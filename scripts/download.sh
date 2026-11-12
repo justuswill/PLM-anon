@@ -5,7 +5,7 @@
 #   bash scripts/download.sh --pretrain              # also the 19 pretrained models
 set -euo pipefail
 
-MIRROR=https://anonymous-hf.com/api/a/gk540ibws5qh   # anonymous mirror of the checkpoint repository
+MIRROR=https://anonymous-hf.com/api/a/5ks2lx5rn3fa   # anonymous mirror of the checkpoint repository
 POSTTRAIN=(posttrain/ar-1.3B posttrain/plm-1.3B-beta0.5 posttrain/plm-1.3B-beta1 posttrain/plm-1.3B-beta2 posttrain/plm-3B-beta1 posttrain/ptp-lora-1.3B posttrain/eagle3-ar-1.3B posttrain/fdv2-1.3B)
 PRETRAIN=(pretrain/ar-350M pretrain/ar-1.3B pretrain/plm-350M-beta1 pretrain/plm-1.3B-beta0.5 pretrain/plm-1.3B-beta1 pretrain/plm-1.3B-beta2 pretrain/plm-3B-beta1
           pretrain/ar-80M pretrain/plm-80M-beta0.5 pretrain/plm-80M-beta1 pretrain/plm-80M-beta2
