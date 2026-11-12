@@ -1,8 +1,8 @@
 """Write one benchmark's prompts in the plain template the models were post-trained on, plus its task manifest.
 
-    python -m plm.eval.build_prompts --benchmark gsm8k --tokenizer checkpoints/posttrain/plm-1.3B-beta1 --out-dir prompts/gsm8k
+    python -m bench.eval.build_prompts --benchmark gsm8k --tokenizer checkpoints/posttrain/plm-1.3B-beta1 --out-dir prompts/gsm8k
 
-Writes ``prompts.json`` (the list ``plm.generate --dataset`` takes) and ``tasks.json`` (task ids and the answer budget).
+Writes ``prompts.json`` (the list ``bench.generate --dataset`` takes) and ``tasks.json`` (task ids and the answer budget).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from transformers import AutoTokenizer
 
-from plm.eval.benchmarks import BENCHMARKS, Task
+from bench.eval.benchmarks import BENCHMARKS, Task
 
 HEADROOM = 64
 

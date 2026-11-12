@@ -15,8 +15,8 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 CHECKPOINTS=${CHECKPOINTS:-checkpoints}
 export PYTHONPATH=third_party NLTK_DATA=third_party/nltk_data
 
-[ -f prompts/gsm8k/tasks.json ] || uv run --no-sync python -m plm.eval.build_prompts --benchmark gsm8k --tokenizer "$CHECKPOINTS/posttrain/plm-1.3B-beta1" --out-dir prompts/gsm8k
+[ -f prompts/gsm8k/tasks.json ] || uv run --no-sync python -m bench.eval.build_prompts --benchmark gsm8k --tokenizer "$CHECKPOINTS/posttrain/plm-1.3B-beta1" --out-dir prompts/gsm8k
 mkdir -p results/posttrain/plm-1.3B-beta0.5-exact
-uv run --no-sync python -m plm.generate --model "$CHECKPOINTS/posttrain/plm-1.3B-beta0.5" --mode fast --match exact --k 7 --dataset prompts/gsm8k/prompts.json --tokens 512 \
+uv run --no-sync python -m bench.generate --model "$CHECKPOINTS/posttrain/plm-1.3B-beta0.5" --mode fast --match exact --k 7 --dataset prompts/gsm8k/prompts.json --tokens 512 \
     --max-model-len 4096 --stop-at-eos --seeds 0 1 2 --out results/posttrain/plm-1.3B-beta0.5-exact/gsm8k.json
-uv run --no-sync python -m plm.eval.score --benchmark gsm8k --results results/posttrain/plm-1.3B-beta0.5-exact/gsm8k.json --tasks prompts/gsm8k/tasks.json
+uv run --no-sync python -m bench.eval.score --benchmark gsm8k --results results/posttrain/plm-1.3B-beta0.5-exact/gsm8k.json --tasks prompts/gsm8k/tasks.json

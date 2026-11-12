@@ -21,37 +21,41 @@ RUNS = Path(__file__).resolve().parent.parent / "runs"
 BUDGETS = {"gsm8k": 512, "math500": 2048, "humaneval": 768, "ifeval": 1280}
 PLMS = {"plm-1.3B-beta0.5": 10, "plm-1.3B-beta1": 10, "plm-1.3B-beta2": 10, "plm-3B-beta1": 7}   # model -> relaxed k
 SCHEME_FOR_AR_BASELINE = "plm-1.3B-beta1"
-DISTILLED = "ptp-lora-1.3B"   # gated-LoRA model distilled from ar-1.3B; ar-lora is its exact decode run autoregressively on ar-1.3B
+DISTILLED = "ptp-lora-1.3B"   # gated-LoRA model distilled from ar-1.3B; ar-icdf is its exact decode run autoregressively on ar-1.3B
 PRETRAINED_PLMS = ("plm-1.3B-beta0.5", "plm-1.3B-beta1", "plm-1.3B-beta2", "plm-3B-beta1")
 FDV2 = "fdv2-1.3B"   # Fast-dLLM v2 converted from ar-1.3B
 FDV2_THRESHOLDS = (1, 0.95, 0.7, 0.3)
 
 
 def posttrain_decodings() -> list[tuple[str, str, str]]:
-    """(model, decoding, generate flags) for every Table 11 row, then the distilled model's rows, then FDv2 at each threshold and greedy, with ar-1.3B's greedy decode."""
+    """(model, decoding, generate flags) for every Table 11 row, then the distilled model's rows, then ar-1.3B's greedy decode (the comparison for FDv2's)."""
     rows = [("ar-1.3B", "ar-topk", "--ar --ar-sampler topk"),
-            ("ar-1.3B", "ar-voronoi", f'--ar --ar-sampler voronoi --ar-voronoi-scheme "$CHECKPOINTS/posttrain/{SCHEME_FOR_AR_BASELINE}"')]
+            ("ar-1.3B", "ar-voronoi", f'--ar --ar-sampler voronoi --ar-scheme "$CHECKPOINTS/posttrain/{SCHEME_FOR_AR_BASELINE}"')]
     for model, relaxed_k in PLMS.items():
         rows += [(model, "ar-topk", "--ar --ar-sampler topk"), (model, "ar-voronoi", "--ar --ar-sampler voronoi"),
                  (model, "exact", "--mode fast --match exact --k 7"), (model, "relaxed", f"--mode fast --match relaxed --k {relaxed_k}")]
     rows += [(DISTILLED, "exact", "--mode fast --match exact --k 7"), (DISTILLED, "relaxed", "--mode fast --match relaxed --k 10"),
-             ("ar-1.3B", "ar-lora", f'--ar --ar-sampler voronoi --ar-voronoi-scheme "$CHECKPOINTS/posttrain/{DISTILLED}"')]
-    rows += [(FDV2, f"t{threshold}", f"--fdv2 --fdv2-threshold {threshold}") for threshold in FDV2_THRESHOLDS]
-    # Greedy, against ar-1.3B's greedy decode: FDv2 at threshold 1 unmasks one token a pass.
-    rows += [(FDV2, "greedy-t1", "--fdv2 --fdv2-threshold 1 --fdv2-temperature 0"), ("ar-1.3B", "ar-greedy", "--ar --ar-sampler greedy")]
+             ("ar-1.3B", "ar-icdf", f'--ar --ar-sampler icdf --ar-scheme "$CHECKPOINTS/posttrain/{DISTILLED}"')]
+    rows += [("ar-1.3B", "ar-greedy", "--ar --ar-sampler greedy")]
     return rows
 
 
 def eagle3_decodings() -> list[tuple[str, str, str]]:
-    """(model, decoding, eagle3.generate flags): ar-1.3B with its EAGLE-3 head, as a chain of 4 drafts and as a draft tree."""
-    head = '--head "$CHECKPOINTS/posttrain/eagle3-ar-1.3B"'
-    return [("ar-1.3B", "eagle3", head), ("ar-1.3B", "eagle3-tree", f"{head} --tree")]
+    """(model, decoding, generate flags): ar-1.3B with its EAGLE-3 head, as a chain of 4 drafts and as a draft tree."""
+    head = '--eagle3 "$CHECKPOINTS/posttrain/eagle3-ar-1.3B"'
+    return [("ar-1.3B", "eagle3", head), ("ar-1.3B", "eagle3-tree", f"{head} --eagle3-tree")]
+
+
+def fastdllmv2_decodings() -> list[tuple[str, str, str]]:
+    """(model, decoding, generate flags): FDv2 at each threshold, and greedy at threshold 1 (one token a pass)."""
+    rows = [(FDV2, f"t{threshold}", f"--fdv2 --fdv2-threshold {threshold}") for threshold in FDV2_THRESHOLDS]
+    return rows + [(FDV2, "greedy-t1", "--fdv2 --fdv2-threshold 1 --fdv2-temperature 0")]
 
 
 def pretrain_decodings() -> list[tuple[str, str, str]]:
     """(model, decoding, generate flags) for every pretrained 1.3B and 3B model."""
     rows = [("ar-1.3B", "ar-topk", "--ar --ar-sampler topk"),
-            ("ar-1.3B", "ar-voronoi", f'--ar --ar-sampler voronoi --ar-voronoi-scheme "$CHECKPOINTS/pretrain/{SCHEME_FOR_AR_BASELINE}"')]
+            ("ar-1.3B", "ar-voronoi", f'--ar --ar-sampler voronoi --ar-scheme "$CHECKPOINTS/pretrain/{SCHEME_FOR_AR_BASELINE}"')]
     for model in PRETRAINED_PLMS:
         rows += [(model, "ar-topk", "--ar --ar-sampler topk"), (model, "ar-voronoi", "--ar --ar-sampler voronoi"),
                  (model, "exact", "--setting pretrain --mode fast --match exact"), (model, "relaxed", "--setting pretrain --mode fast --match relaxed")]
@@ -83,14 +87,14 @@ cd "${{SLURM_SUBMIT_DIR:-$PWD}}"
 CHECKPOINTS=${{CHECKPOINTS:-checkpoints}}
 
 mkdir -p results/pretrain/{run} results/pretrain/samples
-uv run --no-sync python -m plm.generate --model "$CHECKPOINTS/pretrain/{model}" {flags} --dataset data/fineweb-edu/prompts.json --tokens 128 \
+uv run --no-sync python -m bench.generate --model "$CHECKPOINTS/pretrain/{model}" {flags} --dataset data/fineweb-edu/prompts.json --tokens 128 \
     --max-model-len 4096 --seeds 0 1 2 --out {results}.json
-uv run --no-sync python -m plm.eval.judge_samples --results {results}.json --prompts data/fineweb-edu/prompts.jsonl --seed 0 \
+uv run --no-sync python -m bench.eval.judge_samples --results {results}.json --prompts data/fineweb-edu/prompts.jsonl --seed 0 \
     --model {player} --out results/pretrain/samples/{player}.jsonl
 """
 
 
-def sbatch(model: str, decoding: str, flags: str, benchmark: str, module: str = "plm.generate") -> str:
+def sbatch(model: str, decoding: str, flags: str, benchmark: str) -> str:
     run = f"{model}-{decoding}"
     results = f"results/posttrain/{run}/{benchmark}"
     return f"""#!/bin/bash
@@ -110,11 +114,11 @@ cd "${{SLURM_SUBMIT_DIR:-$PWD}}"
 CHECKPOINTS=${{CHECKPOINTS:-checkpoints}}
 export PYTHONPATH=third_party NLTK_DATA=third_party/nltk_data
 
-[ -f prompts/{benchmark}/tasks.json ] || uv run --no-sync python -m plm.eval.build_prompts --benchmark {benchmark} --tokenizer "$CHECKPOINTS/posttrain/{SCHEME_FOR_AR_BASELINE}" --out-dir prompts/{benchmark}
+[ -f prompts/{benchmark}/tasks.json ] || uv run --no-sync python -m bench.eval.build_prompts --benchmark {benchmark} --tokenizer "$CHECKPOINTS/posttrain/{SCHEME_FOR_AR_BASELINE}" --out-dir prompts/{benchmark}
 mkdir -p results/posttrain/{run}
-uv run --no-sync python -m {module} --model "$CHECKPOINTS/posttrain/{model}" {flags} --dataset prompts/{benchmark}/prompts.json --tokens {BUDGETS[benchmark]} \\
+uv run --no-sync python -m bench.generate --model "$CHECKPOINTS/posttrain/{model}" {flags} --dataset prompts/{benchmark}/prompts.json --tokens {BUDGETS[benchmark]} \\
     --max-model-len 4096 --stop-at-eos --seeds 0 1 2 --out {results}.json
-uv run --no-sync python -m plm.eval.score --benchmark {benchmark} --results {results}.json --tasks prompts/{benchmark}/tasks.json
+uv run --no-sync python -m bench.eval.score --benchmark {benchmark} --results {results}.json --tasks prompts/{benchmark}/tasks.json
 """
 
 
@@ -126,7 +130,10 @@ def main() -> None:
             (RUNS / "posttrain" / f"{model}-{decoding}-{benchmark}.sbatch").write_text(sbatch(model, decoding, flags, benchmark))
     for model, decoding, flags in eagle3_decodings():
         for benchmark in BUDGETS:
-            (RUNS / "posttrain" / f"{model}-{decoding}-{benchmark}.sbatch").write_text(sbatch(model, decoding, flags, benchmark, "eagle3.generate"))
+            (RUNS / "posttrain" / f"{model}-{decoding}-{benchmark}.sbatch").write_text(sbatch(model, decoding, flags, benchmark))
+    for model, decoding, flags in fastdllmv2_decodings():
+        for benchmark in BUDGETS:
+            (RUNS / "posttrain" / f"{model}-{decoding}-{benchmark}.sbatch").write_text(sbatch(model, decoding, flags, benchmark))
     for model, decoding, flags in pretrain_decodings():
         (RUNS / "pretrain" / f"{model}-{decoding}-fineweb-edu.sbatch").write_text(pretrain_sbatch(model, decoding, flags))
     for setting in ("posttrain", "pretrain"):

@@ -10,7 +10,7 @@ CHECKPOINTS=${CHECKPOINTS:-checkpoints}
 mkdir -p results/logs
 if [ "$SETTING" = posttrain ]; then
     for benchmark in gsm8k math500 humaneval ifeval; do
-        [ -f "prompts/$benchmark/tasks.json" ] || uv run --no-sync python -m plm.eval.build_prompts --benchmark "$benchmark" --tokenizer "$CHECKPOINTS/posttrain/plm-1.3B-beta1" --out-dir "prompts/$benchmark"
+        [ -f "prompts/$benchmark/tasks.json" ] || uv run --no-sync python -m bench.eval.build_prompts --benchmark "$benchmark" --tokenizer "$CHECKPOINTS/posttrain/plm-1.3B-beta1" --out-dir "prompts/$benchmark"
     done
 fi
 for run in "runs/$SETTING"/*.sbatch; do

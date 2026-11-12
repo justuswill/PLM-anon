@@ -10,7 +10,7 @@
 # A, B and C as single tokens; default microsoft/phi-4. Judge calls are cached per judge model, so switching judges
 # reuses nothing but never mixes verdicts; give each judge its own output folder.
 #
-# Input: one <player>.jsonl per player (plm.eval.judge_samples writes them), every file over the same prompt_ids with the
+# Input: one <player>.jsonl per player (bench.eval.judge_samples writes them), every file over the same prompt_ids with the
 # same prompt text. Output in the second folder: elo.json and elo.md (rank, Elo, 95% interval, meetings, wins, losses,
 # ties, and the judge's checks), schedule.jsonl, judgments/ and logs/.
 #
@@ -48,12 +48,12 @@ export PYTHONUNBUFFERED=1 TOKENIZERS_PARALLELISM=false TRANSFORMERS_VERBOSITY=er
 PY=(uv run --no-sync python -m)
 
 mkdir -p "$OUT" "$CACHE" || exit 1
-"${PY[@]}" plm.judge.schedule --samples "$SAMPLES" --per-player "$PER_PLAYER" --seed "$SEED" --out "$OUT/schedule.jsonl" || exit 1
+"${PY[@]}" bench.judge.schedule --samples "$SAMPLES" --per-player "$PER_PLAYER" --seed "$SEED" --out "$OUT/schedule.jsonl" || exit 1
 
 rm -rf "$OUT/judgments" "$OUT/logs"   # rebuilt from the cache and the schedule every run
 mkdir -p "$OUT/judgments" "$OUT/logs"
 for worker in $(seq 0 $((GPUS - 1))); do
-    CUDA_VISIBLE_DEVICES=$worker "${PY[@]}" plm.judge.judge --samples "$SAMPLES" --schedule "$OUT/schedule.jsonl" --cache "$CACHE" \
+    CUDA_VISIBLE_DEVICES=$worker "${PY[@]}" bench.judge.judge --samples "$SAMPLES" --schedule "$OUT/schedule.jsonl" --cache "$CACHE" \
         --engine "$ENGINE" --judge-model "$JUDGE_MODEL" --cap "$CAP" --floor "$FLOOR" --seed "$SEED" \
         --shard "$worker" --shards "$GPUS" --tag "${SLURM_JOB_ID:-local}-shard${worker}of${GPUS}" \
         --out "$OUT/judgments/shard${worker}of${GPUS}.jsonl" > "$OUT/logs/judge-worker$worker.log" 2>&1 &
@@ -64,4 +64,4 @@ if [ "$written" -ne "$GPUS" ]; then
     echo "only $written of $GPUS judge workers finished; see $OUT/logs. Rerun to finish: the cache keeps their work"
     exit 1
 fi
-"${PY[@]}" plm.judge.fit --judgments "$OUT/judgments/shard*.jsonl" --anchor "$ANCHOR" --bootstrap "$BOOTSTRAP" --seed "$SEED" --out "$OUT/elo.json"
+"${PY[@]}" bench.judge.fit --judgments "$OUT/judgments/shard*.jsonl" --anchor "$ANCHOR" --bootstrap "$BOOTSTRAP" --seed "$SEED" --out "$OUT/elo.json"

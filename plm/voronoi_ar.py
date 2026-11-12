@@ -1,11 +1,11 @@
-"""Autoregressive decoding under a PLM's own sampling rule, as a vLLM logits processor (``--ar-sampler voronoi``).
+"""Autoregressive decoding under a PLM's own sampling rule, as a vLLM logits processor (``--ar-sampler voronoi`` and ``icdf``).
 
 An exact parallel round emits, at output position t, ``auxiliary_scheme.decode_unmasked`` of the causal row's logits with
 ``aux_stream[t]``: one prior draw per position from the request's seed, the same stream for every prompt. This processor
 applies the same rule to one row per step on stock vLLM autoregression, so an AR model samples exactly as a PLM's exact
 decode does. The seed is the request's ``SamplingParams.extra_args["aux_seed"]`` (default 0).
 
-The scheme comes from ``PLM_VORONOI_SCHEME_DIR``, a PLM export of the same hidden size whose config carries
+The scheme comes from ``PLM_AR_SCHEME_DIR``, a PLM export of the same hidden size whose config carries
 ``auxiliary_scheme``; the ``lm_head`` is the served model's own. With the distilled model's linear-interpolation scheme
 this is top-128 sampling at temperature 1 by inverse CDF on that model's seeded random values, its exact decode run
 autoregressively. Serves one request at a time.
@@ -38,7 +38,7 @@ def read_tensor(export: Path, name: str) -> torch.Tensor:
 
 class VoronoiARLogitsProcessor(LogitsProcessor):
     def __init__(self, vllm_config, device: torch.device, is_pin_memory: bool) -> None:
-        scheme_dir = Path(os.environ["PLM_VORONOI_SCHEME_DIR"])
+        scheme_dir = Path(os.environ["PLM_AR_SCHEME_DIR"])
         self.dtype = vllm_config.model_config.dtype
         scheme_config = SimpleNamespace(**json.loads((scheme_dir / "config.json").read_text()))
         self.scheme = build_auxiliary_scheme(scheme_config, dtype=self.dtype).to(device)

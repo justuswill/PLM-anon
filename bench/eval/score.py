@@ -1,6 +1,6 @@
-"""Grade a ``plm.generate`` results file per seed and report the Table 11 columns: score, questions/s, tokens/s and tokens/call.
+"""Grade a ``bench.generate`` results file per seed and report the Table 11 columns: score, questions/s, tokens/s and tokens/call.
 
-    python -m plm.eval.score --benchmark gsm8k --results results/plm-1.3B-beta1-exact/gsm8k.json --tasks prompts/gsm8k/tasks.json
+    python -m bench.eval.score --benchmark gsm8k --results results/plm-1.3B-beta1-exact/gsm8k.json --tasks prompts/gsm8k/tasks.json
 
 Each continuation is cut at the end-of-text token and at the benchmark's stop strings, then stripped, before grading.
 Every metric is reported per seed and as the mean over seeds, with the sample standard deviation and a two-sided 95%
@@ -13,8 +13,8 @@ import argparse
 import json
 from pathlib import Path
 
-from plm.eval.benchmarks import BENCHMARKS, Task, mean_score
-from plm.eval.stats import spread
+from bench.eval.benchmarks import BENCHMARKS, Task, mean_score
+from bench.eval.stats import spread
 
 EOS = "<|endoftext|>"
 METRICS = ("score", "questions_per_second", "tokens_per_second", "tokens_per_call")
@@ -39,7 +39,7 @@ def grade_pass(benchmark: str, tasks: list[Task], measured: dict) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--benchmark", required=True, choices=tuple(BENCHMARKS))
-    parser.add_argument("--results", required=True, help="a plm.generate results file")
+    parser.add_argument("--results", required=True, help="a bench.generate results file")
     parser.add_argument("--tasks", required=True, help="build_prompts.py's tasks.json for this benchmark")
     parser.add_argument("--out", default="", help="where to write the graded summary; default <results>.score.json")
     args = parser.parse_args()

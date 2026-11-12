@@ -1,6 +1,6 @@
-"""Rewrite one pass of a ``plm.generate`` results file as a samples file for the pairwise LLM judge of Figure 1.
+"""Rewrite one pass of a ``bench.generate`` results file as a samples file for the pairwise LLM judge of Figure 1.
 
-    python -m plm.eval.judge_samples --results results/pretrain/plm-1.3B-beta1-exact/fineweb-edu.json --prompts data/fineweb-edu/prompts.jsonl \\
+    python -m bench.eval.judge_samples --results results/pretrain/plm-1.3B-beta1-exact/fineweb-edu.json --prompts data/fineweb-edu/prompts.jsonl \\
         --seed 0 --model vllm_plm_1.3b_beta1_pre_exact --out results/pretrain/samples/vllm_plm_1.3b_beta1_pre_exact.jsonl
 
 One JSON object a line: ``model``, ``prompt_id``, ``prompt`` and ``text`` are what the judge reads; ``generated_tokens``,
@@ -43,7 +43,7 @@ def build_samples(records: list[dict], prompts: list[tuple[str, str]], model: st
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--results", required=True, type=Path, help="a plm.generate results file")
+    parser.add_argument("--results", required=True, type=Path, help="a bench.generate results file")
     parser.add_argument("--prompts", required=True, type=Path, help="data/fineweb-edu/prompts.jsonl")
     parser.add_argument("--model", required=True, help="the player name; also the output file's stem")
     parser.add_argument("--seed", type=int, default=None, help="which measured pass; needed only when the file has several")

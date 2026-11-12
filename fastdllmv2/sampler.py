@@ -6,7 +6,7 @@ Position i is read off row i-1 (token shift). Once a canvas is full, a commit pa
 canvases attend to, and its last row gives the next canvas's first token.
 
 Every pass is bidirectional within what it is sent. With ``max_num_batched_tokens=32`` the prompt is prefilled in aligned
-32-token chunks, which is block-causal as FDv2 trains its clean stream. The driver (``plm.generate --fdv2``) sends the prompt
+32-token chunks, which is block-causal as FDv2 trains its clean stream. The driver (``bench.generate --fdv2``) sends the prompt
 up to its last 32-aligned boundary and the rest as ``extra_args["fdv2_tail"]``, which opens the first canvas where the
 reference puts it.
 
@@ -33,7 +33,7 @@ from vllm.v1.worker.gpu.model_states.default import DefaultModelState
 from vllm.v1.worker.gpu.sample.output import SamplerOutput
 from vllm.v1.worker.utils import AttentionGroup
 
-logger = init_logger(__name__)
+logger = init_logger(f"vllm.{__name__}")   # vLLM configures only its own logger namespace
 
 TEXT_VOCAB_SIZE = 50257
 EOD_TOKEN_ID = 50256

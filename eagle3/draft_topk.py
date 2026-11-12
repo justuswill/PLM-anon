@@ -1,4 +1,4 @@
-"""EAGLE-3 drafts sampled from the head's top-k at temperature 1 (``eagle3.generate --draft topk``).
+"""EAGLE-3 drafts sampled from the head's top-k at temperature 1 (``bench.generate --eagle3-draft topk``).
 
 vLLM's probabilistic drafting samples the head's full distribution q, and its standard rejection sampling then accepts
 with probability sum(min(p, q)) against the target's p, here top-128 at temperature 1. Draft mass outside the target's

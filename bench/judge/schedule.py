@@ -1,6 +1,6 @@
 """Which two models meet on which prompt, for the LLM-judge Elo.
 
-    python -m plm.judge.schedule --samples SAMPLES --per-player 400 --seed 0 --out OUT/schedule.jsonl
+    python -m bench.judge.schedule --samples SAMPLES --per-player 400 --seed 0 --out OUT/schedule.jsonl
 
 A new schedule is built in rounds. Each round shuffles the field and pairs it off, so after R
 rounds every model has met R opponents drawn uniformly from the whole field, which keeps the
@@ -23,7 +23,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from plm.judge.common import read_jsonl, read_samples, write_jsonl
+from bench.judge.common import read_jsonl, read_samples, write_jsonl
 
 
 def draw_prompt(rng: random.Random, prompts: list[str], used: set, a: str, b: str) -> str:

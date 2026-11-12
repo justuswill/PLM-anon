@@ -15,8 +15,8 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 CHECKPOINTS=${CHECKPOINTS:-checkpoints}
 export PYTHONPATH=third_party NLTK_DATA=third_party/nltk_data
 
-[ -f prompts/humaneval/tasks.json ] || uv run --no-sync python -m plm.eval.build_prompts --benchmark humaneval --tokenizer "$CHECKPOINTS/posttrain/plm-1.3B-beta1" --out-dir prompts/humaneval
+[ -f prompts/humaneval/tasks.json ] || uv run --no-sync python -m bench.eval.build_prompts --benchmark humaneval --tokenizer "$CHECKPOINTS/posttrain/plm-1.3B-beta1" --out-dir prompts/humaneval
 mkdir -p results/posttrain/fdv2-1.3B-t1
-uv run --no-sync python -m plm.generate --model "$CHECKPOINTS/posttrain/fdv2-1.3B" --fdv2 --fdv2-threshold 1 --dataset prompts/humaneval/prompts.json --tokens 768 \
+uv run --no-sync python -m bench.generate --model "$CHECKPOINTS/posttrain/fdv2-1.3B" --fdv2 --fdv2-threshold 1 --dataset prompts/humaneval/prompts.json --tokens 768 \
     --max-model-len 4096 --stop-at-eos --seeds 0 1 2 --out results/posttrain/fdv2-1.3B-t1/humaneval.json
-uv run --no-sync python -m plm.eval.score --benchmark humaneval --results results/posttrain/fdv2-1.3B-t1/humaneval.json --tasks prompts/humaneval/tasks.json
+uv run --no-sync python -m bench.eval.score --benchmark humaneval --results results/posttrain/fdv2-1.3B-t1/humaneval.json --tasks prompts/humaneval/tasks.json

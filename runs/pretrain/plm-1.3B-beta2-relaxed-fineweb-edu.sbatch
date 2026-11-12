@@ -15,5 +15,5 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 CHECKPOINTS=${CHECKPOINTS:-checkpoints}
 
 mkdir -p results/pretrain/plm-1.3B-beta2-relaxed results/pretrain/samples
-uv run --no-sync python -m plm.generate --model "$CHECKPOINTS/pretrain/plm-1.3B-beta2" --setting pretrain --mode fast --match relaxed --dataset data/fineweb-edu/prompts.json --tokens 128     --max-model-len 4096 --seeds 0 1 2 --out results/pretrain/plm-1.3B-beta2-relaxed/fineweb-edu.json
-uv run --no-sync python -m plm.eval.judge_samples --results results/pretrain/plm-1.3B-beta2-relaxed/fineweb-edu.json --prompts data/fineweb-edu/prompts.jsonl --seed 0     --model vllm_plm_1.3b_beta2_pre_relaxed --out results/pretrain/samples/vllm_plm_1.3b_beta2_pre_relaxed.jsonl
+uv run --no-sync python -m bench.generate --model "$CHECKPOINTS/pretrain/plm-1.3B-beta2" --setting pretrain --mode fast --match relaxed --dataset data/fineweb-edu/prompts.json --tokens 128     --max-model-len 4096 --seeds 0 1 2 --out results/pretrain/plm-1.3B-beta2-relaxed/fineweb-edu.json
+uv run --no-sync python -m bench.eval.judge_samples --results results/pretrain/plm-1.3B-beta2-relaxed/fineweb-edu.json --prompts data/fineweb-edu/prompts.jsonl --seed 0     --model vllm_plm_1.3b_beta2_pre_relaxed --out results/pretrain/samples/vllm_plm_1.3b_beta2_pre_relaxed.jsonl

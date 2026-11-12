@@ -15,5 +15,5 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 CHECKPOINTS=${CHECKPOINTS:-checkpoints}
 
 mkdir -p results/pretrain/ar-1.3B-ar-topk results/pretrain/samples
-uv run --no-sync python -m plm.generate --model "$CHECKPOINTS/pretrain/ar-1.3B" --ar --ar-sampler topk --dataset data/fineweb-edu/prompts.json --tokens 128     --max-model-len 4096 --seeds 0 1 2 --out results/pretrain/ar-1.3B-ar-topk/fineweb-edu.json
-uv run --no-sync python -m plm.eval.judge_samples --results results/pretrain/ar-1.3B-ar-topk/fineweb-edu.json --prompts data/fineweb-edu/prompts.jsonl --seed 0     --model vllm_ar_1.3b_pre_ar_topk --out results/pretrain/samples/vllm_ar_1.3b_pre_ar_topk.jsonl
+uv run --no-sync python -m bench.generate --model "$CHECKPOINTS/pretrain/ar-1.3B" --ar --ar-sampler topk --dataset data/fineweb-edu/prompts.json --tokens 128     --max-model-len 4096 --seeds 0 1 2 --out results/pretrain/ar-1.3B-ar-topk/fineweb-edu.json
+uv run --no-sync python -m bench.eval.judge_samples --results results/pretrain/ar-1.3B-ar-topk/fineweb-edu.json --prompts data/fineweb-edu/prompts.jsonl --seed 0     --model vllm_ar_1.3b_pre_ar_topk --out results/pretrain/samples/vllm_ar_1.3b_pre_ar_topk.jsonl

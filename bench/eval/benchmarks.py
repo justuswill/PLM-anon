@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from datasets import load_dataset
 
-from plm.eval import grading
+from bench.eval import grading
 
 GSM8K_INSTRUCTION = ("Solve the following grade school math problem. Reason step by step, then write the final numeric answer on its own "
                      'last line in the form "The answer is <number>."')

@@ -22,20 +22,21 @@ eval = [
     "matplotlib>=3.11.2",
 ]
 
-# vLLM loads these in every process it spawns: the PLM model classes for its engine, and the EAGLE-3 baseline's draft patch.
+# vLLM loads these in every process it spawns: the PLM and FDv2 model classes for its engine, and the EAGLE-3 baseline's draft patch.
 [project.entry-points."vllm.general_plugins"]
-register_plm = "vllm_plm:register"
+register_plm = "plm:register"
 register_eagle3 = "eagle3:register"
+register_fastdllmv2 = "fastdllmv2:register"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["plm*", "vllm_plm*", "eagle3*"]
+include = ["plm*", "bench*", "eagle3*", "fastdllmv2*"]
 
 [tool.setuptools.package-data]
-vllm_plm = ["gpu_tuning/*.json"]
+plm = ["gpu_tuning/*.json"]
 
 # vLLM 0.26.0 pins torch 2.11.0. The PyPI vLLM wheel is a CUDA 13 build; the release asset below is the CUDA 12 one,
 # which runs against the cu128 torch on drivers that cap at CUDA 12.8.

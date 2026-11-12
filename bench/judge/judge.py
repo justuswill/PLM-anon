@@ -1,10 +1,10 @@
 """The LLM judge: which of two continuations of the same opening is better, in both orderings.
 
-    python -m plm.judge.judge --samples SAMPLES --schedule OUT/schedule.jsonl --cache CACHE \\
+    python -m bench.judge.judge --samples SAMPLES --schedule OUT/schedule.jsonl --cache CACHE \\
         --judge-model microsoft/phi-4 --engine vllm --shard 0 --shards 4 \\
         --out OUT/judgments/shard0of4.jsonl
 
-Every scheduled pair is judged twice, once with each continuation shown first; plm.judge.fit
+Every scheduled pair is judged twice, once with each continuation shown first; bench.judge.fit
 combines the two. Before the judge sees them, both continuations are cut to a common length
 counted in one fixed tokenizer (GPT-2 by default), so models with different tokenizers are
 measured alike: each is capped at --cap tokens, then both are cut to the shorter of the two,
@@ -20,7 +20,7 @@ Any call whose key is already in a --cache file is not judged again: adding a mo
 its own pairs, and regenerating a model's samples under the same name re-judges exactly the
 calls whose text changed. Each worker appends to its own cache file, <cache>/<tag>.jsonl.
 
---out gets this shard's scheduled calls with their verdicts, cached or new, for plm.judge.fit.
+--out gets this shard's scheduled calls with their verdicts, cached or new, for bench.judge.fit.
 
 Engines: vllm (default); hf, batched transformers, if vLLM will not run; mock, no model at all,
 probabilities from a hash of the prompt, for testing everything except the judge.
@@ -38,7 +38,7 @@ import sys
 import time
 from pathlib import Path
 
-from plm.judge.common import read_jsonl, read_samples, write_jsonl
+from bench.judge.common import read_jsonl, read_samples, write_jsonl
 
 LABELS = ("A", "B", "C")
 PROMPT = """You are judging two continuations of the same opening passage of web text.

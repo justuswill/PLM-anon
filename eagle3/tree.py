@@ -1,6 +1,6 @@
 """EAGLE-3 with EAGLE-2's dynamic draft tree, as captured CUDA graphs on vLLM 0.26's model, paged KV cache and FlexAttention.
 
-One request at a time, bypassing vLLM's scheduler. The FlexAttention plumbing is a copy of vllm_plm/decoder.py's, kept
+One request at a time, bypassing vLLM's scheduler. The FlexAttention plumbing is a copy of plm/decoder.py's, kept
 separate so this baseline shares no code path with the PLM decoder. A step is one graph replay:
 
 1. verify: the target runs the W = total_token tree nodes in one forward. Node i sits at KV slot C+i (C = committed tokens)

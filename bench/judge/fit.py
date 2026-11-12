@@ -1,6 +1,6 @@
 """Bradley-Terry Elo from the judge's pairwise verdicts, with bootstrap intervals.
 
-    python -m plm.judge.fit --judgments 'OUT/judgments/*.jsonl' --anchor ar-1.3b --out OUT/elo.json
+    python -m bench.judge.fit --judgments 'OUT/judgments/*.jsonl' --anchor ar-1.3b --out OUT/elo.json
 
 A pair's two orderings become one outcome - a win only when both name the same winner,
 otherwise a tie - the outcomes are fitted by maximum likelihood, and 95% intervals come from
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-from plm.judge.common import (
+from bench.judge.common import (
     bootstrap_elo, fit_strengths, pair_outcomes, read_jsonl, spearman, to_elo, win_matrix, write_text,
 )
 
@@ -47,7 +47,7 @@ def split_half(outcomes: list[dict], players: list[str], anchor: int, ridge: flo
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--judgments", required=True, help="glob of plm.judge.judge outputs")
+    parser.add_argument("--judgments", required=True, help="glob of bench.judge.judge outputs")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--anchor", default="",
                         help="the model placed at 1000; default the first alphabetically")

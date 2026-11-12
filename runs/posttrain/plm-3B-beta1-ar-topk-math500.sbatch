@@ -15,8 +15,8 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 CHECKPOINTS=${CHECKPOINTS:-checkpoints}
 export PYTHONPATH=third_party NLTK_DATA=third_party/nltk_data
 
-[ -f prompts/math500/tasks.json ] || uv run --no-sync python -m plm.eval.build_prompts --benchmark math500 --tokenizer "$CHECKPOINTS/posttrain/plm-1.3B-beta1" --out-dir prompts/math500
+[ -f prompts/math500/tasks.json ] || uv run --no-sync python -m bench.eval.build_prompts --benchmark math500 --tokenizer "$CHECKPOINTS/posttrain/plm-1.3B-beta1" --out-dir prompts/math500
 mkdir -p results/posttrain/plm-3B-beta1-ar-topk
-uv run --no-sync python -m plm.generate --model "$CHECKPOINTS/posttrain/plm-3B-beta1" --ar --ar-sampler topk --dataset prompts/math500/prompts.json --tokens 2048 \
+uv run --no-sync python -m bench.generate --model "$CHECKPOINTS/posttrain/plm-3B-beta1" --ar --ar-sampler topk --dataset prompts/math500/prompts.json --tokens 2048 \
     --max-model-len 4096 --stop-at-eos --seeds 0 1 2 --out results/posttrain/plm-3B-beta1-ar-topk/math500.json
-uv run --no-sync python -m plm.eval.score --benchmark math500 --results results/posttrain/plm-3B-beta1-ar-topk/math500.json --tasks prompts/math500/tasks.json
+uv run --no-sync python -m bench.eval.score --benchmark math500 --results results/posttrain/plm-3B-beta1-ar-topk/math500.json --tasks prompts/math500/tasks.json

@@ -15,5 +15,5 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 CHECKPOINTS=${CHECKPOINTS:-checkpoints}
 
 mkdir -p results/pretrain/plm-1.3B-beta0.5-exact results/pretrain/samples
-uv run --no-sync python -m plm.generate --model "$CHECKPOINTS/pretrain/plm-1.3B-beta0.5" --setting pretrain --mode fast --match exact --dataset data/fineweb-edu/prompts.json --tokens 128     --max-model-len 4096 --seeds 0 1 2 --out results/pretrain/plm-1.3B-beta0.5-exact/fineweb-edu.json
-uv run --no-sync python -m plm.eval.judge_samples --results results/pretrain/plm-1.3B-beta0.5-exact/fineweb-edu.json --prompts data/fineweb-edu/prompts.jsonl --seed 0     --model vllm_plm_1.3b_beta0.5_pre_exact --out results/pretrain/samples/vllm_plm_1.3b_beta0.5_pre_exact.jsonl
+uv run --no-sync python -m bench.generate --model "$CHECKPOINTS/pretrain/plm-1.3B-beta0.5" --setting pretrain --mode fast --match exact --dataset data/fineweb-edu/prompts.json --tokens 128     --max-model-len 4096 --seeds 0 1 2 --out results/pretrain/plm-1.3B-beta0.5-exact/fineweb-edu.json
+uv run --no-sync python -m bench.eval.judge_samples --results results/pretrain/plm-1.3B-beta0.5-exact/fineweb-edu.json --prompts data/fineweb-edu/prompts.jsonl --seed 0     --model vllm_plm_1.3b_beta0.5_pre_exact --out results/pretrain/samples/vllm_plm_1.3b_beta0.5_pre_exact.jsonl

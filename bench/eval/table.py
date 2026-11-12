@@ -1,7 +1,7 @@
 """Print the runs under a results directory: mean ± 95% CI over seeds.
 
-    python -m plm.eval.table results/posttrain   # Table 11 rows: score, questions/s, tokens/s and tokens/call per benchmark
-    python -m plm.eval.table results/pretrain    # tokens/s and tokens/call on the Figure 1 prompts
+    python -m bench.eval.table results/posttrain   # Table 11 rows: score, questions/s, tokens/s and tokens/call per benchmark
+    python -m bench.eval.table results/pretrain    # tokens/s and tokens/call on the Figure 1 prompts
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from plm.eval.stats import spread
+from bench.eval.stats import spread
 
 BENCHMARKS = ("gsm8k", "math500", "humaneval", "ifeval")
 COLUMNS = (("score", 1), ("questions_per_second", 2), ("tokens_per_second", 0), ("tokens_per_call", 2))

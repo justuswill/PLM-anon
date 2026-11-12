@@ -1,6 +1,6 @@
 """Figure 1 from a judged samples folder: each player's Elo against its single-stream throughput.
 
-    python -m plm.judge.figure1 --samples results/pretrain/samples --elo results/pretrain/elo/elo.json \\
+    python -m bench.judge.figure1 --samples results/pretrain/samples --elo results/pretrain/elo/elo.json \\
         --out results/pretrain/figure1.png
 
 Throughput is end to end, prefill included: a player's generated tokens over its seconds, summed over the prompts of its
@@ -14,7 +14,7 @@ import argparse
 import json
 from pathlib import Path
 
-from plm.judge.common import read_jsonl
+from bench.judge.common import read_jsonl
 
 DECODINGS = ("ar_topk", "ar_voronoi", "exact", "relaxed")
 
