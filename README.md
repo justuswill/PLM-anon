@@ -22,7 +22,7 @@ bash scripts/setup_eval.sh    # Google's IFEval checkers and NLTK data, into thi
 ## Models
 
 ```
-bash scripts/download.sh                            # the five post-trained Table 11 models and the distilled model, into checkpoints/posttrain/
+bash scripts/download.sh                            # the post-trained Table 11 models and the baselines, into checkpoints/posttrain/
 bash scripts/download.sh posttrain/plm-1.3B-beta1   # or some of them
 bash scripts/download.sh --pretrain                 # also the pretrained models
 ```
@@ -39,6 +39,7 @@ Post-trained models (`posttrain/`), the ones this repository runs:
 | `posttrain/plm-1.3B-beta2` | 1.3B | 2 | PLM, SFT + DPO | 1.3B β = 2 |
 | `posttrain/plm-3B-beta1` | 3B | 1 | PLM, SFT + DPO | 3B β = 1 |
 | `posttrain/ptp-lora-1.3B` | 1.3B | – | gated-LoRA parallel decoder distilled from `ar-1.3B` |  |
+| `posttrain/eagle3-ar-1.3B` | 1-layer head | – | EAGLE-3 draft head for `posttrain/ar-1.3B`, ~1.6B tokens |  |
 
 Pretrained models (`pretrain/`). Training tokens are optimizer steps × global batch × 4096-token sequences.
 
@@ -63,8 +64,6 @@ Pretrained models (`pretrain/`). Training tokens are optimizer steps × global b
 | `pretrain/plm-1.3B-beta1` | 1.3B | 1 | 100.0B | Figures 1 and 5, Table 7; base of the post-trained β = 1 |
 | `pretrain/plm-1.3B-beta2` | 1.3B | 2 | 100.0B | Figure 5; base of the post-trained β = 2 |
 | `pretrain/plm-3B-beta1` | 3B | 1 | 300.0B | Figures 1 and 5, Table 7; base of the post-trained 3B |
-| `pretrain/eagle3-plm-1.3B-beta1` | 1-layer head | – | 0.49B | EAGLE-3 draft head for `pretrain/plm-1.3B-beta1` |
-| `pretrain/eagle3-plm-3B-beta1` | 1-layer head | – | 2.0B | EAGLE-3 draft head for `pretrain/plm-3B-beta1` |
 
 All models use the GPT-2 tokenizer. The post-trained models use the prompt template `User: {prompt}\n\nAssistant:`.
 
@@ -88,8 +87,8 @@ borrows it from the β = 1 PLM of the same size (all PLMs of one size share it).
 The quality numbers of Figure 1 and Table 7 come from a pairwise LLM-judge tournament on FineWeb-Edu continuations.
 `plm.judge` and `scripts/judge_elo.sh` run that tournament (see [Reproducing Figure 1](#reproducing-figure-1-partial)).
 `runs/pretrain/` holds one frozen
-job per pretrained 1.3B and 3B model and decoding (ar-topk, ar-voronoi, exact and relaxed, `ar-1.3B`'s two AR rows, and
-the two EAGLE-3 heads), 20 in total, on the judge's 200 prompts (`data/fineweb-edu/`) under its contract: 128 tokens
+job per pretrained 1.3B and 3B model and decoding (ar-topk, ar-voronoi, exact and relaxed, and `ar-1.3B`'s two AR rows),
+18 in total, on the judge's 200 prompts (`data/fineweb-edu/`) under its contract: 128 tokens
 with no stop at EOS, temperature 1 over the 128 likeliest tokens. Each job writes `results/pretrain/<model>-<decoding>/fineweb-edu.json`
 over a warm-up pass and seeds 0, 1 and 2, and turns seed 0 into the judge's samples file
 `results/pretrain/samples/<player>.jsonl` (`plm.eval.judge_samples`: one line per prompt with `model`, `prompt_id`,
@@ -119,14 +118,21 @@ uv run python -m plm.generate --model checkpoints/posttrain/ptp-lora-1.3B --mode
 
 ### EAGLE-3 baseline
 
-The two `eagle3-*` heads are EAGLE-3 draft heads trained on ClimbMix with their PLM frozen and run as a plain
-autoregressive model. `--eagle3` serves the head as vLLM's speculative decoding on top of `--ar --ar-sampler topk`;
-verification keeps the target's top-k distribution, so only speed changes. The head drafts `--eagle3-k` tokens
-(default 5) per target call, and `tokens/call` counts the prefill as one call.
+`posttrain/eagle3-ar-1.3B` is an EAGLE-3 draft head for `ar-1.3B`, trained with the same data `ptp-lora-1.3B` is distilled from. The baseline lives in its own package, `eagle3/`, which shares no
+code path with the PLM decoders; `python -m eagle3.generate` takes `plm.generate`'s dataset, seed and output arguments and
+writes the same results file. Both of its decodings are exact for the target's distribution (temperature 1 over the 128
+likeliest tokens), so only speed changes; `tokens/call` counts the prefill as one call.
+
+- **Chain** (default): vLLM's own speculative decoding. The head drafts `--k` tokens per target call (default 4, the fastest
+  of 4, 5 and 6 on the Table 11 benchmarks), verified by rejection sampling.
+- **Tree** (`--tree`): EAGLE-2's dynamic draft tree, 60 nodes over 7 levels with 10 children a node (upstream EAGLE's
+  defaults), verified in one target call by multi-candidate speculative sampling. vLLM drafts only chains, so `eagle3/tree.py`
+  drives vLLM's model, paged KV cache and FlexAttention directly, one request at a time, and replays each step (verify,
+  accept, KV compaction, draft update, tree build) as one captured CUDA graph.
 
 ```
-uv run --no-sync python -m plm.generate --ar --ar-sampler topk --model checkpoints/pretrain/plm-1.3B-beta1 \
-    --eagle3 checkpoints/pretrain/eagle3-plm-1.3B-beta1 --dataset prompts.json --tokens 128 --seeds 0 1 2 --out results.json
+uv run --no-sync python -m eagle3.generate --model checkpoints/posttrain/ar-1.3B --head checkpoints/posttrain/eagle3-ar-1.3B \
+    --dataset prompts.json --tokens 512 --stop-at-eos --seeds 0 1 2 --out results.json          # add --tree for the draft tree
 ```
 
 ## Generating
@@ -150,14 +156,14 @@ seed, every continuation with its timing and the number of tokens accepted per r
 
 Figure 1 places every model by its quality, the Elo of a pairwise LLM-judge tournament on FineWeb-Edu continuations,
 against its single-stream speed. This repository reproduces it for the pretrained 1.3B and 3B models, every decoding
-of them, and the EAGLE-3 baseline; the paper's other baselines (off-the-shelf autoregressive and diffusion language
+of them; the paper's baselines (off-the-shelf autoregressive and diffusion language
 models) and the 350M PLM are not included. Elo is relative to the field it is fitted on, so the values shift from the
 paper's: here `vllm_ar_1.3b_pre_ar_topk` (`ar-1.3B`, top-k sampling) sits at 1000.
 
 ```
-bash scripts/download.sh --pretrain                                # the pretrained models and the EAGLE-3 heads
+bash scripts/download.sh --pretrain                                # the pretrained models
 uv sync --extra eval
-bash runs/submit_all.sh pretrain -p <partition>                   # 20 jobs, 3 to 15 minutes each on an RTX 6000 Ada
+bash runs/submit_all.sh pretrain -p <partition>                   # 18 jobs, 3 to 15 minutes each on an RTX 6000 Ada
 sbatch --gres=gpu:4 scripts/judge_elo.sh results/pretrain/samples results/pretrain/elo     # or bash ..., without Slurm
 uv run --no-sync python -m plm.judge.figure1 --samples results/pretrain/samples \
     --elo results/pretrain/elo/elo.json --out results/pretrain/figure1.png
@@ -179,7 +185,8 @@ table (Elo and end-to-end tokens per second) and draws the figure.
 
 Every run of Table 11 has its own frozen job in `runs/posttrain/`: one per model, decoding and benchmark, with all flags pinned.
 There are 72 in total: ar-topk, ar-voronoi, exact and relaxed for each PLM, and ar-topk and ar-voronoi for `ar-1.3B`,
-each on four benchmarks, plus 12 for the distilled model (`ptp-lora-1.3B` exact and relaxed, and `ar-1.3B` ar-lora). Each job generates over a warm-up pass and seeds 0, 1 and 2, grades the run, and writes
+each on four benchmarks, plus 12 for the distilled model (`ptp-lora-1.3B` exact and relaxed, and `ar-1.3B` ar-lora), 8 for
+`ar-1.3B` with its EAGLE-3 head (`eagle3`, the chain, and `eagle3-tree`). Each job generates over a warm-up pass and seeds 0, 1 and 2, grades the run, and writes
 `results/posttrain/<model>-<decoding>/<benchmark>.json` and `.score.json`.
 
 ```
@@ -225,4 +232,5 @@ The exact tokens also depend on the GPU architecture, since kernel selection and
 | `vllm_plm/gated_lora.py` | the distilled model's gated LoRA adapter, applied to proposal rows only |
 | `vllm_plm/fast_gemm.py`, `vllm_plm/gemm_tables.py`, `vllm_plm/gpu_tuning/` | `--mode fast` |
 | `vllm_plm/voronoi_ar.py` | the PLM decode rule as a vLLM logits processor, for the AR baseline |
+| `eagle3/` | the EAGLE-3 baseline: `generate.py` (CLI), `chain.py` (vLLM speculative decoding, `draft_topk.py` its `--draft topk` patch), `tree.py` and `tree_head.py` (the draft tree) |
 | `vllm_plm/model.py`, `vllm_plm/config.py` | the vLLM model classes, registered through a vLLM plugin entry point |

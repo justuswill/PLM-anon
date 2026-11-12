@@ -22,16 +22,17 @@ eval = [
     "matplotlib>=3.11.2",
 ]
 
-# vLLM loads this in every process it spawns, which is what makes the PLM model classes visible to its engine.
+# vLLM loads these in every process it spawns: the PLM model classes for its engine, and the EAGLE-3 baseline's draft patch.
 [project.entry-points."vllm.general_plugins"]
 register_plm = "vllm_plm:register"
+register_eagle3 = "eagle3:register"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["plm*", "vllm_plm*"]
+include = ["plm*", "vllm_plm*", "eagle3*"]
 
 [tool.setuptools.package-data]
 vllm_plm = ["gpu_tuning/*.json"]

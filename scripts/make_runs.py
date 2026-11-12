@@ -23,7 +23,6 @@ PLMS = {"plm-1.3B-beta0.5": 10, "plm-1.3B-beta1": 10, "plm-1.3B-beta2": 10, "plm
 SCHEME_FOR_AR_BASELINE = "plm-1.3B-beta1"
 DISTILLED = "ptp-lora-1.3B"   # gated-LoRA model distilled from ar-1.3B; ar-lora is its exact decode run autoregressively on ar-1.3B
 PRETRAINED_PLMS = ("plm-1.3B-beta0.5", "plm-1.3B-beta1", "plm-1.3B-beta2", "plm-3B-beta1")
-EAGLE3_TARGETS = ("plm-1.3B-beta1", "plm-3B-beta1")   # each has a head pretrain/eagle3-<target>
 
 
 def posttrain_decodings() -> list[tuple[str, str, str]]:
@@ -38,14 +37,19 @@ def posttrain_decodings() -> list[tuple[str, str, str]]:
     return rows
 
 
+def eagle3_decodings() -> list[tuple[str, str, str]]:
+    """(model, decoding, eagle3.generate flags): ar-1.3B with its EAGLE-3 head, as a chain of 4 drafts and as a draft tree."""
+    head = '--head "$CHECKPOINTS/posttrain/eagle3-ar-1.3B"'
+    return [("ar-1.3B", "eagle3", head), ("ar-1.3B", "eagle3-tree", f"{head} --tree")]
+
+
 def pretrain_decodings() -> list[tuple[str, str, str]]:
-    """(model, decoding, generate flags) for every pretrained 1.3B and 3B model, and the EAGLE-3 heads on their targets."""
+    """(model, decoding, generate flags) for every pretrained 1.3B and 3B model."""
     rows = [("ar-1.3B", "ar-topk", "--ar --ar-sampler topk"),
             ("ar-1.3B", "ar-voronoi", f'--ar --ar-sampler voronoi --ar-voronoi-scheme "$CHECKPOINTS/pretrain/{SCHEME_FOR_AR_BASELINE}"')]
     for model in PRETRAINED_PLMS:
         rows += [(model, "ar-topk", "--ar --ar-sampler topk"), (model, "ar-voronoi", "--ar --ar-sampler voronoi"),
                  (model, "exact", "--setting pretrain --mode fast --match exact"), (model, "relaxed", "--setting pretrain --mode fast --match relaxed")]
-    rows += [(target, "eagle3", f'--ar --ar-sampler topk --eagle3 "$CHECKPOINTS/pretrain/eagle3-{target}"') for target in EAGLE3_TARGETS]
     return rows
 
 
@@ -81,7 +85,7 @@ uv run --no-sync python -m plm.eval.judge_samples --results {results}.json --pro
 """
 
 
-def sbatch(model: str, decoding: str, flags: str, benchmark: str) -> str:
+def sbatch(model: str, decoding: str, flags: str, benchmark: str, module: str = "plm.generate") -> str:
     run = f"{model}-{decoding}"
     results = f"results/posttrain/{run}/{benchmark}"
     return f"""#!/bin/bash
@@ -103,7 +107,7 @@ export PYTHONPATH=third_party NLTK_DATA=third_party/nltk_data
 
 [ -f prompts/{benchmark}/tasks.json ] || uv run --no-sync python -m plm.eval.build_prompts --benchmark {benchmark} --tokenizer "$CHECKPOINTS/posttrain/{SCHEME_FOR_AR_BASELINE}" --out-dir prompts/{benchmark}
 mkdir -p results/posttrain/{run}
-uv run --no-sync python -m plm.generate --model "$CHECKPOINTS/posttrain/{model}" {flags} --dataset prompts/{benchmark}/prompts.json --tokens {BUDGETS[benchmark]} \\
+uv run --no-sync python -m {module} --model "$CHECKPOINTS/posttrain/{model}" {flags} --dataset prompts/{benchmark}/prompts.json --tokens {BUDGETS[benchmark]} \\
     --max-model-len 4096 --stop-at-eos --seeds 0 1 2 --out {results}.json
 uv run --no-sync python -m plm.eval.score --benchmark {benchmark} --results {results}.json --tasks prompts/{benchmark}/tasks.json
 """
@@ -115,6 +119,9 @@ def main() -> None:
     for model, decoding, flags in posttrain_decodings():
         for benchmark in BUDGETS:
             (RUNS / "posttrain" / f"{model}-{decoding}-{benchmark}.sbatch").write_text(sbatch(model, decoding, flags, benchmark))
+    for model, decoding, flags in eagle3_decodings():
+        for benchmark in BUDGETS:
+            (RUNS / "posttrain" / f"{model}-{decoding}-{benchmark}.sbatch").write_text(sbatch(model, decoding, flags, benchmark, "eagle3.generate"))
     for model, decoding, flags in pretrain_decodings():
         (RUNS / "pretrain" / f"{model}-{decoding}-fineweb-edu.sbatch").write_text(pretrain_sbatch(model, decoding, flags))
     for setting in ("posttrain", "pretrain"):

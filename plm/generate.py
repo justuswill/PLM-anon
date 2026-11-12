@@ -18,8 +18,7 @@ from pathlib import Path
 
 from plm import config as plm_config
 
-TOP_K = 128
-SPEC_DRAFTS, SPEC_ACCEPTED = "vllm:spec_decode_num_drafts", "vllm:spec_decode_num_accepted_tokens"
+TOP_K = plm_config.TOP_K
 
 
 def load_dataset(path: str, count: int | None) -> list[str]:
@@ -51,24 +50,6 @@ def run_ar(llm, prompt: str, params) -> dict:
     return speed_record(prompt, output.text, [0] * emitted, emitted, emitted, ms, ms, emitted)
 
 
-def speculative_counts(llm) -> tuple[int, int]:
-    values = {metric.name: metric.value for metric in llm.get_metrics() if metric.name in (SPEC_DRAFTS, SPEC_ACCEPTED)}
-    return values.get(SPEC_DRAFTS, 0), values.get(SPEC_ACCEPTED, 0)
-
-
-def run_eagle3(llm, prompt: str, params) -> dict:
-    """One target call for the prefill, then one per draft it verifies; ``accepted_per_call`` is left empty, vLLM reports totals only."""
-    drafts_before, accepted_before = speculative_counts(llm)
-    started = time.perf_counter()
-    output = llm.generate([prompt], params, use_tqdm=False)[0].outputs[0]
-    ms = 1000 * (time.perf_counter() - started)
-    drafts_after, accepted_after = speculative_counts(llm)
-    emitted, calls = len(output.token_ids), 1 + drafts_after - drafts_before
-    record = speed_record(prompt, output.text, [], calls, emitted, ms, ms, emitted)
-    record["accepted_draft_tokens"] = accepted_after - accepted_before
-    return record
-
-
 def run_plm(decoder, prompt: str, tokens: int, stop_at_eos: bool, seed: int) -> dict:
     started = time.perf_counter()
     first_round = int(decoder.sequence_step.item())
@@ -98,37 +79,30 @@ def aggregate(records: list[dict]) -> dict:
 
 
 def build_generator(args: argparse.Namespace) -> tuple[dict, Callable[[str, int], dict]]:
-    if args.eagle3 and not (args.ar and args.ar_sampler == "topk"):
-        raise SystemExit("--eagle3 runs with --ar --ar-sampler topk: vLLM's speculative decoding does not take the Voronoi logits processor")
     if args.ar:
         dtype = args.ar_dtype or plm_config.AR_DTYPE[args.ar_sampler]
         scheme = (args.ar_voronoi_scheme or args.model) if args.ar_sampler == "voronoi" else None
-        llm = plm_config.build_ar(args.model, dtype, args.max_model_len, scheme, args.eagle3 or None, args.eagle3_k)
-        described = {"decoding": f"ar-{args.ar_sampler}" + ("-eagle3" if args.eagle3 else ""), "model": args.model, "dtype": dtype,
+        llm = plm_config.build_ar(args.model, dtype, args.max_model_len, scheme)
+        described = {"decoding": f"ar-{args.ar_sampler}", "model": args.model, "dtype": dtype,
                      "voronoi_scheme": scheme, "top_k": TOP_K if args.ar_sampler == "topk" else None}
-        if args.eagle3:
-            described["eagle3"] = {"head": args.eagle3, "num_speculative_tokens": args.eagle3_k}
-        run_one = run_eagle3 if args.eagle3 else run_ar
-        return described, lambda prompt, seed: run_one(llm, prompt, ar_sampling(args, seed))
+        return described, lambda prompt, seed: run_ar(llm, prompt, ar_sampling(args, seed))
     round_config = plm_config.from_args(args)
     decoder = round_config.build()
     described = {"decoding": round_config.match, **round_config.describe()}
     return described, lambda prompt, seed: run_plm(decoder, prompt, args.tokens, args.stop_at_eos, seed)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    plm_config.add_arguments(parser)
+def add_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dataset", required=True, help="JSON list of prompt strings")
     parser.add_argument("--prompts", type=int, default=None, help="use only the first N prompts")
     parser.add_argument("--tokens", type=int, default=128, help="generated tokens per prompt (a ceiling with --stop-at-eos)")
     parser.add_argument("--stop-at-eos", action="store_true", help="end each continuation at the end-of-text token")
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2], help="one measured pass per seed, after a discarded warm-up pass")
     parser.add_argument("--out", default="results.json")
-    args = parser.parse_args()
 
-    dataset = load_dataset(args.dataset, args.prompts)
-    described, generate_one = build_generator(args)
+
+def run_passes(described: dict, generate_one: Callable[[str, int], dict], dataset: list[str], args: argparse.Namespace) -> None:
+    """The warm-up pass, then one measured pass per seed, written as one results file."""
     print("=== warm-up pass (discarded)")
     measure(generate_one, dataset, args.seeds[0])
     passes = []
@@ -142,6 +116,17 @@ def main() -> None:
                   "max_model_len": args.max_model_len, "dataset": args.dataset}
     Path(args.out).write_text(json.dumps({"config": described, "passes": passes}, indent=1))
     print(f"  -> {args.out}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    plm_config.add_arguments(parser)
+    add_run_arguments(parser)
+    args = parser.parse_args()
+
+    dataset = load_dataset(args.dataset, args.prompts)
+    described, generate_one = build_generator(args)
+    run_passes(described, generate_one, dataset, args)
 
 
 if __name__ == "__main__":

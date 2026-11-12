@@ -16,7 +16,7 @@ from pathlib import Path
 
 from plm.judge.common import read_jsonl
 
-DECODINGS = ("ar_topk", "ar_voronoi", "exact", "relaxed", "eagle3")
+DECODINGS = ("ar_topk", "ar_voronoi", "exact", "relaxed")
 
 
 def throughput(samples_file: Path) -> float:

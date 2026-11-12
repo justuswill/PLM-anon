@@ -1,7 +1,7 @@
 """Rewrite one pass of a ``plm.generate`` results file as a samples file for the pairwise LLM judge of Figure 1.
 
-    python -m plm.eval.judge_samples --results results/fig1/eagle3-1.3B.json --prompts data/fineweb-edu/prompts.jsonl \\
-        --model vllm_eagle3_1.3b_pre --out results/fig1/samples/vllm_eagle3_1.3b_pre.jsonl
+    python -m plm.eval.judge_samples --results results/pretrain/plm-1.3B-beta1-exact/fineweb-edu.json --prompts data/fineweb-edu/prompts.jsonl \\
+        --seed 0 --model vllm_plm_1.3b_beta1_pre_exact --out results/pretrain/samples/vllm_plm_1.3b_beta1_pre_exact.jsonl
 
 One JSON object a line: ``model``, ``prompt_id``, ``prompt`` and ``text`` are what the judge reads; ``generated_tokens``,
 ``seconds`` and ``nfe`` (model calls) carry the speed. The prompts file supplies ``prompt_id``; it is joined to the
@@ -52,7 +52,7 @@ def main() -> None:
 
     samples = build_samples(select_pass(json.loads(args.results.read_text()), args.seed), load_prompts(args.prompts), args.model)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text("".join(json.dumps(sample, ensure_ascii=False) + "\n" for sample in samples))
+    args.out.write_text("".join(json.dumps(sample) + "\n" for sample in samples))
     print(f"{len(samples)} samples -> {args.out}")
 
 
